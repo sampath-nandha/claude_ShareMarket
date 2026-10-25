@@ -58,6 +58,8 @@ class Trade:
     regime: str = ""
     trigger: str = ""
     bars_held: int = 0
+    pa_score: float = 0.0
+    coincident: str = ""
 
     def to_row(self, cfg: BacktestConfig) -> dict:
         d = 1 if self.direction == "BULLISH" else -1
@@ -70,7 +72,7 @@ class Trade:
             "exit_reason": self.exit_reason, "points": pts, "pnl_gross": gross, "costs": costs, "pnl_net": gross - costs,
             "mfe": self.mfe, "mae": self.mae, "bars_held": self.bars_held, "regime": self.regime, "trigger": self.trigger,
             "session": self.entry_ts.date(), "hour": self.entry_ts.hour, "weekday": self.entry_ts.strftime("%a"),
-            "directional_hit": bool(self.exit_reason == "TARGET1"),
+            "directional_hit": bool(self.exit_reason == "TARGET1"), "pa_score": self.pa_score, "coincident": self.coincident,
         }
 
 
@@ -139,7 +141,8 @@ def run_backtest(minute_bars: pd.DataFrame, cfg: BacktestConfig | None = None) -
                 d = 1 if cand.direction == "BULLISH" else -1
                 fill = float(nxt["open"]) + d * cfg.slippage_points
                 open_trade = Trade(strat.id, cand.direction, boundary.to_pydatetime(), nxt["ts"].to_pydatetime(), fill, cand.stop,
-                                   cand.target1, cand.target2, regime=ctx.regime.code, trigger=cand.trigger_event)
+                                   cand.target1, cand.target2, regime=ctx.regime.code, trigger=cand.trigger_event, pa_score=cand.pa_score,
+                                   coincident=",".join(sc[0].id for sc in cands if sc[0].id != strat.id))
         if open_trade is not None and open_trade.exit is None:  # safety: close at last bar
             last = day_bars.iloc[-1]
             open_trade.exit, open_trade.exit_ts, open_trade.exit_reason = float(last["close"]), last["ts"].to_pydatetime(), "SESSION_END"

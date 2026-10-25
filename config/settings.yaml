@@ -143,7 +143,7 @@ validation:
   bootstrap_iterations: 2000
 
 strategies:
-  enabled: ["PA01", "PA02", "PA03", "PA04", "PA05"]
+  enabled: ["PA01", "PA02", "PA03", "PA04", "PA05", "PA06", "PA07", "PA08", "PA09", "PA10"]
   setup_timeframe: "5minute"
   context_timeframe: "15minute"
   trend_timeframe: "60minute"

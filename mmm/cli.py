@@ -128,6 +128,110 @@ def options_snapshot() -> None:
     typer.echo(f"{snapshot_option_chain()} contracts")
 
 
+@data_app.command("backfill-options")
+def backfill_options_cmd(days: int = typer.Option(60, help="Days of history per active contract (minute max is 60)"),
+                         interval: str = "minute") -> None:
+    """Backfill candles+OI for the currently active NIFTY option contracts (only possible while they are alive)."""
+    from mmm.broker.auth import get_client
+    from mmm.data.historical import backfill_options
+    from mmm.data.instruments import build_universe, load_instruments
+
+    client = get_client()
+    inst = load_instruments()
+    if inst.empty:
+        raise typer.BadParameter("No instrument snapshot; run `mmm data instruments` first")
+    cfg = get_config_universe()
+    spot = None
+    try:
+        spot = list(client.ltp([f"{cfg.index_exchange}:{cfg.index_symbol}"]).values())[0]["last_price"]
+    except Exception as exc:
+        typer.echo(f"LTP unavailable ({exc}); using master last_price")
+    uni = build_universe(inst, spot)
+    typer.echo(f"{len(uni.options)} contracts across {uni.expiries}")
+    res = backfill_options(client, uni.options, interval, days, progress=lambda s, n: typer.echo(f"  {s}: {n}"))
+    typer.echo(f"total rows: {sum(res.values()):,}")
+
+
+def get_config_universe():
+    from mmm.settings import get_config
+
+    return get_config().universe
+
+
+@data_app.command("export-seed")
+def export_seed() -> None:
+    """Copy the archive (instruments, candles, option_chain snapshots) into ./seed so it can be committed once."""
+    import shutil
+
+    from mmm.data import paths
+
+    src, dst = paths.data_dir(), paths.seed_dir()
+    for kind in ("instruments", "candles", "option_chain"):
+        s = src / kind
+        if s.exists():
+            shutil.copytree(s, dst / kind, dirs_exist_ok=True)
+            typer.echo(f"{kind}: {sum(1 for _ in (dst / kind).rglob('*.parquet'))} files")
+    total = sum(p.stat().st_size for p in dst.rglob("*.parquet")) / 1e6
+    typer.echo(f"seed size {total:.1f} MB")
+
+
+@data_app.command("import-seed")
+def import_seed() -> None:
+    """Copy ./seed into the data dir (fresh machine bootstrap). Existing files are kept unless the seed is newer."""
+    import shutil
+
+    from mmm.data import paths
+
+    src, dst = paths.seed_dir(), paths.data_dir()
+    n = 0
+    for p in src.rglob("*.parquet"):
+        target = dst / p.relative_to(src)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if not target.exists() or p.stat().st_mtime > target.stat().st_mtime:
+            shutil.copy2(p, target)
+            n += 1
+    typer.echo(f"imported {n} files into {dst}")
+
+
+research_app = typer.Typer(help="Walk-forward research, calibration and strategy status")
+app.add_typer(research_app, name="research")
+
+
+@research_app.command("run")
+def research_run(train_days: int = 120, test_days: int = 30, holdout_days: int = 60) -> None:
+    """Walk-forward all enabled strategies, fit calibration, update statuses, write a report."""
+    from mmm.research.report import run
+
+    r = run(train_days=train_days, test_days=test_days, holdout_days=holdout_days)
+    for sid, e in r["strategies"].items():
+        o = e.get("oos") or {}
+        typer.echo(f"{sid}: n={o.get('n', 0)} win_rate={o.get('win_rate')} LB={o.get('win_rate_ci_low')} verdict={o.get('verdict')} status={e['status']}")
+    if "calibration" in r:
+        typer.echo(f"calibration: {r['calibration']['method']} n={r['calibration']['n']} usable={r['calibration']['usable']}")
+    typer.echo("report: " + ", ".join(r["paths"]))
+
+
+@research_app.command("status")
+def research_status() -> None:
+    from mmm.research.registry import statuses
+
+    for sid, s in sorted(statuses().items()):
+        typer.echo(f"{sid}: {s['status']} - {s['reason']} ({s['updated_at']})")
+
+
+@app.command()
+def reconcile() -> None:
+    """Match MANUAL journal entries with today's broker fills (read-only)."""
+    from mmm.broker.auth import get_client
+    from mmm.paper.reconcile import reconcile as _rec
+
+    res = _rec(get_client())
+    for k, df in res.items():
+        typer.echo(f"\n== {k} ({len(df)})")
+        if not df.empty:
+            typer.echo(df.to_string())
+
+
 @app.command()
 def collect(spot: float | None = typer.Option(None, help="Spot hint for ATM selection before the first tick")) -> None:
     """Run the live WebSocket collector (FULL mode) until stopped."""

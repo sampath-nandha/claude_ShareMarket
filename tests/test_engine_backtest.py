@@ -22,7 +22,7 @@ def test_build_context_has_no_lookahead():
 def test_strategies_return_valid_candidates_and_stage2_labels_research_only():
     bars = demo_minute_bars(days=25, seed=11)
     strategies = load_strategies()
-    assert [s.id for s in strategies] == ["PA01", "PA02", "PA03", "PA04", "PA05"]
+    assert [s.id for s in strategies][:5] == ["PA01", "PA02", "PA03", "PA04", "PA05"] and len(strategies) == 10
     found = 0
     sessions = sorted(bars["ts"].dt.date.unique())[12:]
     for day in sessions:

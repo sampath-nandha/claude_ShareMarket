@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -75,7 +76,8 @@ class Strategy(ABC):
 
     def spec(self) -> dict[str, str]:
         return {"id": self.id, "name": self.name, "version": self.version, "status": self.status,
-                "eligible_regimes": ",".join(self.eligible_regimes) or "ANY", "doc": (self.__doc__ or "").strip()}
+                "eligible_regimes": ",".join(self.eligible_regimes) or "ANY",
+                "doc": (self.__doc__ or sys.modules[self.__class__.__module__].__doc__ or "").strip()}
 
     @staticmethod
     def targets_from_levels(ctx: StrategyContext, direction: int, entry: float, risk: float) -> tuple[float, float]:

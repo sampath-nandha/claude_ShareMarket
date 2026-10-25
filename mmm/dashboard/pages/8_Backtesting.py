@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
@@ -61,7 +62,7 @@ fig.add_trace(go.Scatter(x=eq["exit_ts"], y=eq["pnl_gross"].cumsum(), name="gros
 fig.update_layout(title="Equity curve (₹)", height=360, template="plotly_dark", margin=dict(l=10, r=10, t=40, b=10))
 st.plotly_chart(fig, width="stretch")
 
-tabs = st.tabs(["By strategy", "By regime", "By hour", "By weekday", "By exit", "Cost sensitivity", "Trades"])
+tabs = st.tabs(["By strategy", "By regime", "By hour", "By weekday", "By exit", "Cost sensitivity", "Trades", "Walk-forward", "Calibration", "Option leg"])
 fmt = {"win_rate": "{:.1%}", "net_pnl": "{:,.0f}", "expectancy": "{:,.0f}", "profit_factor": "{:.2f}", "max_dd": "{:,.0f}"}
 with tabs[0]:
     st.dataframe(breakdown(t, "strategy_id").style.format(fmt), hide_index=True, width="stretch")
@@ -82,5 +83,79 @@ with tabs[5]:
 with tabs[6]:
     st.dataframe(t.sort_values("entry_ts", ascending=False), hide_index=True, width="stretch", height=500)
     st.download_button("Download trades CSV", t.to_csv(index=False).encode(), "backtest_trades.csv", "text/csv")
+with tabs[7]:
+    from mmm.backtest.walkforward import walk_forward
+
+    st.write("Chronological folds; the last N sessions are an untouched holdout. Rule-based strategies have no fitted parameters, so folds measure stability, not fit.")
+    w = st.columns(4)
+    tr_d = w[0].number_input("Train sessions", 20, 400, 60)
+    te_d = w[1].number_input("Test sessions", 5, 120, 15)
+    ho_d = w[2].number_input("Holdout sessions", 0, 200, 10)
+    if w[3].button("Run walk-forward"):
+        with st.spinner("Walking forward…"):
+            folds, oos, notes = walk_forward(b.minute_bars, BacktestConfig(point_value=pv, cost_per_trade=cost, slippage_points=slip, max_hold_bars=hold, strategies=strats),
+                                             int(tr_d), int(te_d), holdout_days=int(ho_d))
+        st.session_state["wf"] = (folds, oos, notes)
+    wf = st.session_state.get("wf")
+    if wf:
+        folds, oos, notes = wf
+        for n_ in notes:
+            st.caption(n_)
+        if folds:
+            st.dataframe(pd.DataFrame([{"test": f"{f.test_start}→{f.test_end}", "n": f.stats.n, "win_rate": f.stats.win_rate, "LB95": f.stats.win_rate_ci_low,
+                                        "net": f.stats.net_pnl, "expectancy": f.stats.expectancy, "verdict": f.stats.verdict} for f in folds])
+                         .style.format({"win_rate": "{:.1%}", "LB95": "{:.1%}", "net": "{:,.0f}", "expectancy": "{:,.0f}"}), hide_index=True, width="stretch")
+        if oos:
+            st.write(f"**Pooled OOS:** n={oos.n}, win rate {oos.win_rate:.1%} (LB {oos.win_rate_ci_low:.1%}), expectancy ₹{oos.expectancy:,.0f}, verdict **{oos.verdict}**")
+            for r in oos.reasons:
+                st.write("• " + r)
+with tabs[8]:
+    from mmm.backtest import calibration
+
+    st.write("Score → observed win rate on out-of-sample trades. A probability is only shown when the calibrator is usable (n ≥ minimum).")
+    src = st.radio("Fit on", ["Walk-forward OOS trades (correct)", "This backtest's trades (in-sample, for illustration only)"], index=0)
+    trades_for_cal = None
+    if src.startswith("Walk") and st.session_state.get("wf") and st.session_state["wf"][0]:
+        trades_for_cal = pd.concat([f.trades for f in st.session_state["wf"][0]], ignore_index=True)
+    elif src.startswith("This"):
+        trades_for_cal = t
+    if trades_for_cal is None or trades_for_cal.empty:
+        st.info("Run the walk-forward tab first (or pick in-sample).")
+    else:
+        trades_for_cal = trades_for_cal.copy(); trades_for_cal["win"] = trades_for_cal["pnl_net"] > 0
+        cal = calibration.fit(trades_for_cal, score_col="pa_score", min_n=v.min_trades_per_strategy)
+        cc = st.columns(4)
+        cc[0].metric("Method", cal.method); cc[1].metric("n", cal.n, "usable" if cal.usable else f"need ≥{cal.min_n}")
+        cc[2].metric("Brier", f"{cal.brier:.3f}" if cal.brier is not None else "–"); cc[3].metric("Base win rate", f"{cal.base_rate:.1%}" if cal.base_rate is not None else "–")
+        if cal.reliability:
+            rel = pd.DataFrame(cal.reliability)
+            figc = go.Figure()
+            figc.add_trace(go.Scatter(x=rel["predicted"], y=rel["observed"], mode="markers+lines", name="bins", error_y=dict(type="data", symmetric=False,
+                                      array=rel["ci_hi"] - rel["observed"], arrayminus=rel["observed"] - rel["ci_lo"]), text=[f"n={n_}" for n_ in rel["n"]]))
+            figc.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode="lines", name="perfect", line=dict(dash="dash", color="grey")))
+            figc.update_layout(title="Reliability diagram", xaxis_title="predicted", yaxis_title="observed", height=380, template="plotly_dark")
+            st.plotly_chart(figc, width="stretch")
+            st.dataframe(rel.style.format({"lo": "{:.0f}", "hi": "{:.0f}", "predicted": "{:.1%}", "observed": "{:.1%}", "ci_lo": "{:.1%}", "ci_hi": "{:.1%}"}), hide_index=True, width="stretch")
+        if src.startswith("Walk") and not b.is_demo and st.button("Save as live calibrator"):
+            calibration.save(cal)
+            st.success("Saved. Live Signals will show calibrated probabilities when usable.")
+        elif b.is_demo:
+            st.caption("Saving is disabled on synthetic data.")
+with tabs[9]:
+    from mmm.backtest.option_leg import evaluate_option_leg
+
+    st.write("What buying the ATM option on each signal would have made, using archived option candles. Trades without option data are reported, not guessed.")
+    itm = st.selectbox("Strikes ITM", [0, 1, 2], index=0)
+    ol = evaluate_option_leg(t, itm_strikes=int(itm))
+    st.write(f"Evaluated {ol.evaluated} · not evaluated {ol.not_evaluated} · reasons: {ol.reasons or 'none'}")
+    if ol.evaluated:
+        os_ = compute_stats(ol.trades)
+        oc = st.columns(5)
+        oc[0].metric("Option win rate", f"{os_.win_rate:.1%}", f"LB {os_.win_rate_ci_low:.1%}"); oc[1].metric("Net ₹", f"{os_.net_pnl:,.0f}")
+        oc[2].metric("Expectancy", f"{os_.expectancy:,.0f}"); oc[3].metric("PF", f"{os_.profit_factor:.2f}" if os_.profit_factor not in (None, float('inf')) else "∞")
+        oc[4].metric("Verdict", os_.verdict)
+        st.dataframe(ol.trades, hide_index=True, width="stretch", height=400)
+    else:
+        st.info("No archived option candles for these trades. Run `mmm data backfill-options` while contracts are active, and keep the collector running so history accumulates.")
 st.caption(f"Acceptance requires ≥{v.min_trades_per_strategy} trades, 95% lower bound of win rate >{v.target_win_rate:.0%} (Wilson and session bootstrap), positive expectancy and PF>1 — "
            "on out-of-sample data. Even then, forward paper trading is required before a strategy is marked FORWARD VALIDATED.")

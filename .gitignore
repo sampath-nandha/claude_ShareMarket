@@ -26,3 +26,8 @@ build/
 # ide
 .idea/
 .vscode/
+
+# one-time data seed (committed so a fresh machine starts with history)
+!seed/
+!seed/**
+!seed/**/*.parquet

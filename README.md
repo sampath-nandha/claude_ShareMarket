@@ -67,6 +67,17 @@ theta & cost planner) · Breadth · Live Signals · Risk & Positions · Backtest
 `config/market_holidays.yaml`. Secrets: Credential Manager or `.env` (git-ignored).
 
 ## Status
-Releases R01–R03 and the dashboard shell (R08) are implemented and tested (`pytest`: 44 tests). Historical option
-capture starts the day the collector runs; validation of the 51% target requires real captured history and has
-**not** been demonstrated yet — the backtesting page will say `INSUFFICIENT_EVIDENCE` until it is.
+Implemented and tested (`pytest`: 64 tests): R01–R03 data foundation, all ten price-action strategies PA01–PA10 with
+same-bar de-duplication, futures/options/breadth analytics, two-stage signal engine, risk and cost models, event-driven
+backtester, walk-forward with untouched holdout, out-of-sample probability calibration (gated; `None` until usable),
+option-leg P&L evaluation from archived option candles, strategy status registry (H10), broker fill reconciliation,
+research report runner (`mmm research run`), 10-page dashboard, Windows services.
+
+Not yet: ML layer (R10), formal documentation set. **No strategy has been validated** — the registry keeps every
+strategy EXPERIMENTAL/INSUFFICIENT_EVIDENCE until real archived history produces ≥200 out-of-sample trades that pass
+the gates, and only forward paper trading can mark one FORWARD_VALIDATED.
+
+## Bootstrapping data
+`mmm data instruments` → `mmm data backfill --years 3` → `mmm data backfill-options` (active contracts only; expired
+strikes are not retrievable) → `mmm data options-snapshot` (latest closing chain incl. OI) → `mmm research run`.
+`mmm data export-seed` copies the archive into `./seed` for a one-time commit; `mmm data import-seed` restores it.

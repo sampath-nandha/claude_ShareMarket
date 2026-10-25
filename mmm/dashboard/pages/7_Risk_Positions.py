@@ -37,6 +37,14 @@ try:
         st.metric("Open position P&L", f"₹{net['pnl'].sum():,.0f}")
     else:
         st.write("No open positions.")
+    with st.expander("Reconcile MANUAL journal vs broker fills (today)"):
+        from mmm.paper.reconcile import reconcile
+
+        rec = reconcile(k, db)
+        for name, df_ in rec.items():
+            st.write(f"**{name}** ({len(df_)})")
+            if not df_.empty:
+                st.dataframe(df_, hide_index=True, width="stretch")
 except Exception as exc:
     st.info(f"Account data unavailable ({exc}). Log in with `mmm auth login`.")
 
