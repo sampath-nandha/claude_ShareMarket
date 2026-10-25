@@ -50,7 +50,7 @@ def test_strategies_return_valid_candidates_and_stage2_labels_research_only():
 def test_backtest_runs_and_is_conservative():
     bars = demo_minute_bars(days=22, seed=5)
     res = run_backtest(bars, BacktestConfig(max_hold_bars=60))
-    assert res.sessions == 22
+    assert res.sessions == 22 - 10  # decision sessions after warm-up
     assert "stop assumed first" in " ".join(res.notes)
     if not res.trades.empty:
         t = res.trades

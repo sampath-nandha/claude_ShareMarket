@@ -73,6 +73,7 @@ def swing_zones(
     merge_atr: float = 0.35,
     max_age_bars: int = 400,
     tf: str = "",
+    atr_value: float | None = None,
 ) -> list[Level]:
     """Cluster confirmed swing pivots into zones and score them.
 
@@ -82,8 +83,14 @@ def swing_zones(
     known = [s for s in swings if s.confirmed_at <= as_of_idx and as_of_idx - s.idx <= max_age_bars]
     if not known or as_of_idx < 2:
         return []
-    a = float(atr(df.iloc[: as_of_idx + 1], atr_period).dropna().iloc[-1]) if as_of_idx >= atr_period else float((df["high"] - df["low"]).iloc[: as_of_idx + 1].mean())
+    if atr_value is not None:
+        a = atr_value
+    else:
+        a = float(atr(df.iloc[: as_of_idx + 1], atr_period).dropna().iloc[-1]) if as_of_idx >= atr_period else float((df["high"] - df["low"]).iloc[: as_of_idx + 1].mean())
+    if a <= 0:
+        return []
     tol = merge_atr * a
+    o, h, l, c = df["open"].to_numpy(float), df["high"].to_numpy(float), df["low"].to_numpy(float), df["close"].to_numpy(float)
     known = sorted(known, key=lambda s: s.price)
     clusters: list[list[Swing]] = []
     for s in known:
@@ -91,27 +98,25 @@ def swing_zones(
             clusters[-1].append(s)
         else:
             clusters.append([s])
-    close = float(df["close"].iloc[as_of_idx])
-    out: list[Level] = []
+    close = float(c[as_of_idx])
     tf_weight = {"day": 1.4, "60minute": 1.25, "30minute": 1.15, "15minute": 1.0, "5minute": 0.85, "minute": 0.7}.get(tf, 1.0)
+    out: list[Level] = []
     for cl in clusters:
         idxs = sorted(s.idx for s in cl)
         independent = 1 + sum(1 for a_, b_ in zip(idxs, idxs[1:]) if b_ - a_ > 3)
         price = float(np.mean([s.price for s in cl]))
         age = as_of_idx - max(idxs)
         recency = np.exp(-age / 150)
-        # rejection strength: average wick beyond the zone relative to ATR
         rej = []
         for s in cl:
-            bar = df.iloc[s.idx]
-            wick = (bar["high"] - max(bar["open"], bar["close"])) if s.kind == "H" else (min(bar["open"], bar["close"]) - bar["low"])
-            rej.append(min(wick / a, 2.0) if a > 0 else 0)
+            i = s.idx
+            wick = (h[i] - max(o[i], c[i])) if s.kind == "H" else (min(o[i], c[i]) - l[i])
+            rej.append(min(wick / a, 2.0))
         rejection = float(np.mean(rej))
-        # invalidations: closes beyond the zone after it formed
-        after = df.iloc[min(idxs) : as_of_idx + 1]
-        beyond = (after["close"] > price + tol).sum() if cl[0].kind == "H" else (after["close"] < price - tol).sum()
-        invalid_pen = min(int(beyond) / 5, 1.0)
-        dist_pen = min(abs(close - price) / (6 * a), 1.0) if a > 0 else 0
+        seg = c[min(idxs) : as_of_idx + 1]
+        beyond = int((seg > price + tol).sum()) if cl[0].kind == "H" else int((seg < price - tol).sum())
+        invalid_pen = min(beyond / 5, 1.0)
+        dist_pen = min(abs(close - price) / (6 * a), 1.0)
         strength = 100 * (0.35 * min(independent / 4, 1) + 0.25 * recency + 0.2 * (rejection / 2) + 0.2 * (1 - dist_pen))
         strength *= tf_weight * (1 - 0.5 * invalid_pen)
         kind = "R" if price > close else "S"

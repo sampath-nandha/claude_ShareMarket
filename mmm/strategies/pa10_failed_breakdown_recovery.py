@@ -10,7 +10,6 @@ fails, which historically carries more trapped participants - treated as a hypot
 
 from __future__ import annotations
 
-from mmm.analytics.structure import candle_anatomy
 from mmm.signals.model import SetupCandidate
 from mmm.strategies.base import Strategy, StrategyContext
 
@@ -27,7 +26,7 @@ class FailedBreakdownRecovery(Strategy):
         if len(df) < 40 or (ctx.regime.direction == "BEARISH" and ctx.regime.strength == "STRONG"):
             return None
         a = ctx.atr
-        an = candle_anatomy(df).iloc[-1]
+        an = ctx.anatomy.iloc[-1]
         bar = df.iloc[-1]
         ema20 = float(df["close"].ewm(span=20, adjust=False).mean().iloc[-1])
         if an["close_loc"] < 0.6 or bar["close"] <= ema20:

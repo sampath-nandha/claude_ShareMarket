@@ -18,7 +18,7 @@ import structlog
 from mmm.broker.auth import TokenStore
 from mmm.data import parquet_store
 from mmm.data.instruments import Universe, build_universe, load_instruments
-from mmm.data.quality import DQ, quote_quality
+from mmm.data.quality import quote_quality
 from mmm.data.state_db import StateDB
 from mmm.data.ticks import (
     CandleAggregator,

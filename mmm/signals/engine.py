@@ -14,10 +14,13 @@ from typing import Any
 
 import pandas as pd
 
-from mmm.analytics.candles import completed_only, resample, session_slice
+import numpy as np
+
+from mmm.analytics.candles import MINUTES, completed_only, resample, session_slice
+from mmm.timeutil import IST, session_close
 from mmm.analytics.levels import Level, reference_levels, round_levels, swing_zones
 from mmm.analytics.regime import classify_regime
-from mmm.analytics.structure import classify_structure, pivot_swings, trend_direction
+from mmm.analytics.structure import candle_anatomy, classify_structure, pivot_swings, trend_direction
 from mmm.analytics.volatility import atr
 from mmm.data.quality import DQ
 from mmm.risk.limits import RiskState, check as risk_check
@@ -27,48 +30,116 @@ from mmm.signals.scoring import Components, classify, score
 from mmm.strategies import Strategy, StrategyContext, load_strategies
 
 
-def build_context(minute_bars: pd.DataFrame, as_of: datetime, setup_tf: str | None = None,
-                  context_tf: str | None = None, trend_tf: str | None = None) -> StrategyContext | None:
-    """Build a StrategyContext strictly from 1-minute bars with ts < as_of (no look-ahead)."""
+def _ns(ts: datetime | pd.Timestamp) -> np.datetime64:
+    """tz-aware timestamp -> naive UTC datetime64[ns] (what pandas stores for tz-aware columns)."""
+    t = pd.Timestamp(ts)
+    if t.tzinfo is None:
+        t = t.tz_localize(IST)
+    return np.datetime64(t.tz_convert("UTC").tz_localize(None), "ns")
+
+
+class FrameCache:
+    """Resample the whole minute series once; slice completed bars per `as_of` with searchsorted.
+
+    Resampling is anchored at 09:15 and a bar's values depend only on the minutes inside it, so slicing a
+    full-series resample at `ts + width <= as_of` is identical to resampling only the past - but ~100x faster
+    in a backtest that asks for thousands of decision points.
+    """
+
+    def __init__(self, minute_bars: pd.DataFrame, setup_tf: str, context_tf: str, trend_tf: str):
+        bars = minute_bars.sort_values("ts").reset_index(drop=True)
+        self.minute = bars
+        self.minute_ts = bars["ts"].dt.tz_convert(None).to_numpy()
+        self.frames: dict[str, pd.DataFrame] = {}
+        self.frame_ts: dict[str, np.ndarray] = {}
+        for tf in {setup_tf, context_tf, trend_tf}:
+            f = resample(bars, tf).reset_index(drop=True)
+            self.frames[tf] = f
+            self.frame_ts[tf] = f["ts"].dt.tz_convert(None).to_numpy()
+        self.daily = resample(bars, "day").reset_index(drop=True)
+        self.daily_dates = self.daily["ts"].dt.date.to_numpy()
+
+    def n_minutes_before(self, as_of: datetime) -> int:
+        return int(np.searchsorted(self.minute_ts, _ns(as_of), side="left"))
+
+    def completed(self, tf: str, as_of: datetime) -> pd.DataFrame:
+        cutoff = _ns(pd.Timestamp(as_of) - pd.Timedelta(minutes=MINUTES[tf]))
+        idx = int(np.searchsorted(self.frame_ts[tf], cutoff, side="right"))
+        return self.frames[tf].iloc[:idx]
+
+    def daily_before(self, as_of: datetime) -> pd.DataFrame:
+        d = as_of.date()
+        if as_of < session_close(d):
+            return self.daily[self.daily_dates < d]
+        return self.daily[self.daily_dates <= d]
+
+    def intraday_today(self, as_of: datetime) -> pd.DataFrame:
+        d = as_of.date()
+        start = int(np.searchsorted(self.minute_ts, _ns(datetime(d.year, d.month, d.day, tzinfo=IST)), side="left"))
+        end = self.n_minutes_before(as_of)
+        return self.minute.iloc[start:end]
+
+
+def build_context(minute_bars: pd.DataFrame | None, as_of: datetime, setup_tf: str | None = None,
+                  context_tf: str | None = None, trend_tf: str | None = None, cache: FrameCache | None = None) -> StrategyContext | None:
+    """Build a StrategyContext strictly from 1-minute bars with ts < as_of (no look-ahead).
+
+    Pass a FrameCache (built once over the full series) for backtests; `minute_bars` may then be None.
+    """
     cfg = get_config().strategies
     setup_tf = setup_tf or cfg.setup_timeframe
     context_tf = context_tf or cfg.context_timeframe
     trend_tf = trend_tf or cfg.trend_timeframe
-    past = minute_bars[minute_bars["ts"] < as_of]
-    if len(past) < 400:
-        return None
-    setup = completed_only(resample(past, setup_tf), setup_tf, as_of).reset_index(drop=True)
-    context = completed_only(resample(past, context_tf), context_tf, as_of).reset_index(drop=True)
-    trend = completed_only(resample(past, trend_tf), trend_tf, as_of).reset_index(drop=True)
-    daily = resample(past, "day")
+    if cache is not None:
+        if cache.n_minutes_before(as_of) < 400:
+            return None
+        setup = cache.completed(setup_tf, as_of)
+        context = cache.completed(context_tf, as_of)
+        trend = cache.completed(trend_tf, as_of)
+        daily = cache.daily_before(as_of)
+        intraday_today = cache.intraday_today(as_of)
+    else:
+        assert minute_bars is not None
+        past = minute_bars[minute_bars["ts"] < as_of]
+        if len(past) < 400:
+            return None
+        setup = completed_only(resample(past, setup_tf), setup_tf, as_of).reset_index(drop=True)
+        context = completed_only(resample(past, context_tf), context_tf, as_of).reset_index(drop=True)
+        trend = completed_only(resample(past, trend_tf), trend_tf, as_of).reset_index(drop=True)
+        daily = completed_only(resample(past, "day"), "day", as_of)
+        intraday_today = session_slice(past, as_of.date())
     if len(setup) < 40 or len(context) < 20:
         return None
-    setup = setup.tail(600).reset_index(drop=True)
-    context = context.tail(300).reset_index(drop=True)
-    trend = trend.tail(200).reset_index(drop=True)
+    setup = setup.tail(400).reset_index(drop=True)
+    context = context.tail(200).reset_index(drop=True)
+    trend = trend.tail(120).reset_index(drop=True)
+    a_series = atr(setup, 14).dropna()
+    a = float(a_series.iloc[-1]) if len(a_series) else float((setup["high"] - setup["low"]).mean())
+    c_atr_s = atr(context, 14).dropna()
+    c_atr = float(c_atr_s.iloc[-1]) if len(c_atr_s) else float((context["high"] - context["low"]).mean())
+    t_atr_s = atr(trend, 14).dropna()
+    t_atr = float(t_atr_s.iloc[-1]) if len(t_atr_s) else float((trend["high"] - trend["low"]).mean())
     s_sw = pivot_swings(setup, 3, 3)
     c_sw = pivot_swings(context, 3, 3)
     t_sw = pivot_swings(trend, 2, 2)
-    s_struct = classify_structure(setup, s_sw)
-    c_struct = classify_structure(context, c_sw)
-    t_struct = classify_structure(trend, t_sw) if len(trend) > 10 else c_struct
+    s_struct = classify_structure(setup, s_sw, atr_value=a)
+    c_struct = classify_structure(context, c_sw, atr_value=c_atr)
+    t_struct = classify_structure(trend, t_sw, atr_value=t_atr) if len(trend) > 10 else c_struct
     regime = classify_regime(context, c_struct)
-    a_series = atr(setup, 14).dropna()
-    a = float(a_series.iloc[-1]) if len(a_series) else float((setup["high"] - setup["low"]).mean())
     today = as_of.date()
-    intraday_today = session_slice(past, today)
     levels: list[Level] = reference_levels(daily, intraday_today, today)
-    levels += swing_zones(setup, s_sw, len(setup) - 1, tf=setup_tf)
-    levels += swing_zones(context, c_sw, len(context) - 1, tf=context_tf)
+    levels += swing_zones(setup, s_sw, len(setup) - 1, tf=setup_tf, atr_value=a)
+    levels += swing_zones(context, c_sw, len(context) - 1, tf=context_tf, atr_value=c_atr)
     levels += round_levels(float(setup["close"].iloc[-1]))
     return StrategyContext(
         as_of=as_of, today=today, setup=setup, setup_tf=setup_tf, setup_swings=s_sw, setup_structure=s_struct,
         context=context, context_structure=c_struct, trend=trend, trend_structure=t_struct, regime=regime, atr=a,
-        levels=levels, daily=daily, intraday_today=intraday_today,
+        levels=levels, daily=daily, intraday_today=intraday_today, anatomy=candle_anatomy(setup.iloc[-80:]),
     )
 
 
-def stage1(ctx: StrategyContext, strategies: list[Strategy] | None = None) -> list[tuple[Strategy, SetupCandidate]]:
+def stage1(ctx: StrategyContext, strategies: list[Strategy] | None = None, dedupe_candidates: bool = True) -> list[tuple[Strategy, SetupCandidate]]:
+    """Run every strategy's Stage-1 check. `dedupe_candidates=False` keeps all (research mode: per-strategy stats)."""
     strategies = strategies or load_strategies(get_config().strategies.enabled)
     out = []
     for s in strategies:
@@ -81,7 +152,7 @@ def stage1(ctx: StrategyContext, strategies: list[Strategy] | None = None) -> li
             cand = None
         if cand is not None:
             out.append((s, cand))
-    return dedupe(out)
+    return dedupe(out) if dedupe_candidates else out
 
 
 def dedupe(cands: list[tuple[Strategy, SetupCandidate]]) -> list[tuple[Strategy, SetupCandidate]]:

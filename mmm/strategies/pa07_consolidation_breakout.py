@@ -10,7 +10,6 @@ added to the breakout edge is T1 unless a level is closer; T2 from levels / 2.5R
 from __future__ import annotations
 
 from mmm.analytics.consolidation import detect_box
-from mmm.analytics.structure import candle_anatomy
 from mmm.analytics.volatility import compression
 from mmm.signals.model import SetupCandidate
 from mmm.strategies.base import Strategy, StrategyContext
@@ -29,7 +28,7 @@ class ConsolidationBreakout(Strategy):
         if box is None:
             return None
         a = ctx.atr
-        an = candle_anatomy(df).iloc[-1]
+        an = ctx.anatomy.iloc[-1]
         bar = df.iloc[-1]
         comp = compression(df.iloc[: box.end_idx + 1]).dropna()
         c = float(comp.iloc[-1]) if len(comp) else 1.0

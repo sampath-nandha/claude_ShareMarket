@@ -9,7 +9,6 @@ Entry = close. Stop = rejection extreme +/- 0.15 ATR. T1/T2 from levels / R mult
 
 from __future__ import annotations
 
-from mmm.analytics.structure import candle_anatomy
 from mmm.signals.model import SetupCandidate
 from mmm.strategies.base import Strategy, StrategyContext
 
@@ -26,7 +25,7 @@ class SRRejection(Strategy):
             return None
         df = ctx.setup
         a = ctx.atr
-        ana = candle_anatomy(df)
+        ana = ctx.anatomy
         an, bar = ana.iloc[-1], df.iloc[-1]
         if an["range"] < 0.7 * a:
             return None

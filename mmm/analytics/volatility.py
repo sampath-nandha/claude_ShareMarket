@@ -7,11 +7,12 @@ import pandas as pd
 
 
 def true_range(df: pd.DataFrame) -> pd.Series:
-    prev_close = df["close"].shift(1)
-    tr = pd.concat(
-        [df["high"] - df["low"], (df["high"] - prev_close).abs(), (df["low"] - prev_close).abs()], axis=1
-    ).max(axis=1)
-    return tr.fillna(df["high"] - df["low"])
+    h, l, c = df["high"].to_numpy(float), df["low"].to_numpy(float), df["close"].to_numpy(float)
+    prev_c = np.roll(c, 1)
+    tr = np.maximum.reduce([h - l, np.abs(h - prev_c), np.abs(l - prev_c)])
+    if len(tr):
+        tr[0] = h[0] - l[0]
+    return pd.Series(tr, index=df.index)
 
 
 def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:

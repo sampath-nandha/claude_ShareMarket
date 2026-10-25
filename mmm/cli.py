@@ -198,11 +198,23 @@ app.add_typer(research_app, name="research")
 
 
 @research_app.command("run")
-def research_run(train_days: int = 120, test_days: int = 30, holdout_days: int = 60) -> None:
-    """Walk-forward all enabled strategies, fit calibration, update statuses, write a report."""
+def research_run(train_days: int = 120, test_days: int = 30, holdout_days: int = 60,
+                 days: int = typer.Option(0, help="Only use the last N calendar days of history (0 = all)"),
+                 workers: int = typer.Option(0, help="Parallel processes (0 = CPU count - 1, max 8)")) -> None:
+    """One research-mode pass over archived NIFTY minutes: per-strategy OOS stats, calibration, statuses, report.
+
+    Progress prints as chunks finish. Rough speed: ~0.5 s/session per core, so 3 years on 4 cores ~ 5 minutes.
+    """
+    from mmm.backtest.engine import default_workers
     from mmm.research.report import run
 
-    r = run(train_days=train_days, test_days=test_days, holdout_days=holdout_days)
+    w = workers or default_workers()
+    typer.echo(f"workers: {w}")
+
+    def _progress(done: int, total: int, trades: int) -> None:
+        typer.echo(f"  sessions ~{done}/{total} · trades so far {trades}")
+
+    r = run(train_days=train_days, test_days=test_days, holdout_days=holdout_days, days=days or None, progress=_progress, workers=w)
     for sid, e in r["strategies"].items():
         o = e.get("oos") or {}
         typer.echo(f"{sid}: n={o.get('n', 0)} win_rate={o.get('win_rate')} LB={o.get('win_rate_ci_low')} verdict={o.get('verdict')} status={e['status']}")

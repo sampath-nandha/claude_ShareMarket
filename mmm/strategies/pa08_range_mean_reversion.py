@@ -11,7 +11,6 @@ Opposite of PA02/PA07 at the same level - the regime gate decides which is eligi
 from __future__ import annotations
 
 from mmm.analytics.consolidation import detect_box
-from mmm.analytics.structure import candle_anatomy
 from mmm.signals.model import SetupCandidate
 from mmm.strategies.base import Strategy, StrategyContext
 
@@ -48,7 +47,7 @@ class RangeMeanReversion(Strategy):
         a = ctx.atr
         df = ctx.setup
         bar = df.iloc[-1]
-        an = candle_anatomy(df).iloc[-1]
+        an = ctx.anatomy.iloc[-1]
         mid = (hi + lo) / 2
         if abs(bar["high"] - hi) <= 0.2 * a and bar["close"] <= hi + 0.1 * a and (an["pin_bear"] or an["bear_engulf"] or an["close_loc"] <= 0.4):
             d, edge = -1, hi

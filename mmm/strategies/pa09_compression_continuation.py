@@ -10,7 +10,7 @@ Differs from PA01 (needs a pullback to a level) and PA07 (needs a box; direction
 
 from __future__ import annotations
 
-from mmm.analytics.structure import candle_anatomy, trend_direction
+from mmm.analytics.structure import trend_direction
 from mmm.analytics.volatility import compression
 from mmm.signals.model import SetupCandidate
 from mmm.strategies.base import Strategy, StrategyContext
@@ -30,7 +30,7 @@ class CompressionContinuation(Strategy):
             return None
         df = ctx.setup
         a = ctx.atr
-        ana = candle_anatomy(df)
+        ana = ctx.anatomy
         an, bar = ana.iloc[-1], df.iloc[-1]
         if an["body_ratio"] < 0.6 or an["range"] < 1.0 * a or (d > 0) != bool(an["bull"]):
             return None

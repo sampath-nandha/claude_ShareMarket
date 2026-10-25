@@ -93,8 +93,8 @@ with tabs[7]:
     ho_d = w[2].number_input("Holdout sessions", 0, 200, 10)
     if w[3].button("Run walk-forward"):
         with st.spinner("Walking forward…"):
-            folds, oos, notes = walk_forward(b.minute_bars, BacktestConfig(point_value=pv, cost_per_trade=cost, slippage_points=slip, max_hold_bars=hold, strategies=strats),
-                                             int(tr_d), int(te_d), holdout_days=int(ho_d))
+            folds, oos, notes, _wf_res = walk_forward(b.minute_bars, BacktestConfig(point_value=pv, cost_per_trade=cost, slippage_points=slip, max_hold_bars=hold, strategies=strats),
+                                                      int(tr_d), int(te_d), holdout_days=int(ho_d))
         st.session_state["wf"] = (folds, oos, notes)
     wf = st.session_state.get("wf")
     if wf:

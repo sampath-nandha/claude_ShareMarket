@@ -39,6 +39,7 @@ class StrategyContext:
     daily: pd.DataFrame
     intraday_today: pd.DataFrame      # 1-minute bars of the current session up to as_of
     extras: dict = field(default_factory=dict)
+    anatomy: pd.DataFrame | None = None       # candle_anatomy(setup), computed once per context
 
     @property
     def close(self) -> float:

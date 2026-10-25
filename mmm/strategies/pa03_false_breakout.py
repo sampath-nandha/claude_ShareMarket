@@ -10,7 +10,6 @@ No claim is made about "stop hunting"; this is a measurable price pattern only.
 
 from __future__ import annotations
 
-from mmm.analytics.structure import candle_anatomy
 from mmm.signals.model import SetupCandidate
 from mmm.strategies.base import Strategy, StrategyContext
 
@@ -27,7 +26,7 @@ class FalseBreakout(Strategy):
             return None
         df = ctx.setup
         a = ctx.atr
-        an = candle_anatomy(df).iloc[-1]
+        an = ctx.anatomy.iloc[-1]
         bar = df.iloc[-1]
         win = df.iloc[-3:]
         if an["range"] < 0.6 * a:

@@ -11,7 +11,6 @@ Mirror for breakdowns.
 
 from __future__ import annotations
 
-from mmm.analytics.structure import candle_anatomy
 from mmm.signals.model import SetupCandidate
 from mmm.strategies.base import Strategy, StrategyContext
 
@@ -30,7 +29,7 @@ class BreakoutRetest(Strategy):
             return None
         df = ctx.setup
         a = ctx.atr
-        an = candle_anatomy(df)
+        an = ctx.anatomy
         bar, abar = df.iloc[-1], an.iloc[-1]
         recent = df.iloc[-13:-1]
         levels = [lv for lv in ctx.levels if lv.kind in LEVEL_KINDS and (not lv.kind.startswith("ZONE") or lv.strength >= 50)]

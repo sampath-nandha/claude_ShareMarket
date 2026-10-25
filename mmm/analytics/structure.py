@@ -34,16 +34,26 @@ class Swing:
 
 
 def pivot_swings(df: pd.DataFrame, left: int = 3, right: int = 3) -> list[Swing]:
-    h, l = df["high"].to_numpy(), df["low"].to_numpy()
+    """Vectorised: bar i is a swing high if high[i] is strictly greater than every high in [i-left, i+right]."""
     n = len(df)
+    if n < left + right + 1:
+        return []
+    h, l = df["high"], df["low"]
+    left_max = h.shift(1).rolling(left).max()
+    right_max = h[::-1].shift(1).rolling(right).max()[::-1]
+    left_min = l.shift(1).rolling(left).min()
+    right_min = l[::-1].shift(1).rolling(right).min()[::-1]
+    is_high = (h > left_max) & (h > right_max)
+    is_low = (l < left_min) & (l < right_min)
+    ts = df["ts"]
     out: list[Swing] = []
-    for i in range(left, n - right):
-        win_h = h[i - left : i + right + 1]
-        win_l = l[i - left : i + right + 1]
-        if h[i] == win_h.max() and (win_h == h[i]).sum() == 1:
-            out.append(Swing(i, df["ts"].iloc[i], float(h[i]), "H", i + right))
-        if l[i] == win_l.min() and (win_l == l[i]).sum() == 1:
-            out.append(Swing(i, df["ts"].iloc[i], float(l[i]), "L", i + right))
+    hv, lv = h.to_numpy(), l.to_numpy()
+    for i in np.flatnonzero(is_high.to_numpy()):
+        if left <= i < n - right:
+            out.append(Swing(int(i), ts.iloc[i], float(hv[i]), "H", int(i) + right))
+    for i in np.flatnonzero(is_low.to_numpy()):
+        if left <= i < n - right:
+            out.append(Swing(int(i), ts.iloc[i], float(lv[i]), "L", int(i) + right))
     out.sort(key=lambda s: (s.idx, s.kind))
     return _alternate(out)
 
@@ -117,7 +127,7 @@ class Structure:
     labels: list[str]
 
 
-def classify_structure(df: pd.DataFrame, swings: list[Swing], i: int | None = None, atr_period: int = 14) -> Structure:
+def classify_structure(df: pd.DataFrame, swings: list[Swing], i: int | None = None, atr_period: int = 14, atr_value: float | None = None) -> Structure:
     """Deterministic classification from the last confirmed swings and the current close.
 
     BOS_UP:    close > last confirmed swing high while structure was bullish (continuation).
@@ -150,7 +160,10 @@ def classify_structure(df: pd.DataFrame, swings: list[Swing], i: int | None = No
 
     close = float(df["close"].iloc[i])
     lh, ll = highs[-1], lows[-1]
-    a = float(atr(df.iloc[: i + 1], atr_period).iloc[-1]) if i >= atr_period else float((df["high"] - df["low"]).iloc[: i + 1].mean())
+    if atr_value is not None:
+        a = atr_value
+    else:
+        a = float(atr(df.iloc[: i + 1], atr_period).iloc[-1]) if i >= atr_period else float((df["high"] - df["low"]).iloc[: i + 1].mean())
     buffer = 0.1 * a  # acceptance buffer: a break must clear the level by 10% of ATR
     event = None
     prev_bull = trend in ("STRONG_BULL", "WEAK_BULL")

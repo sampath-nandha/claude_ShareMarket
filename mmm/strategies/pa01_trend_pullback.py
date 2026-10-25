@@ -11,7 +11,7 @@ Mirror for down-trends.
 
 from __future__ import annotations
 
-from mmm.analytics.structure import candle_anatomy, trend_direction
+from mmm.analytics.structure import trend_direction
 from mmm.signals.model import SetupCandidate
 from mmm.strategies.base import Strategy, StrategyContext
 
@@ -32,7 +32,7 @@ class TrendPullback(Strategy):
             return None
         df = ctx.setup
         bar = df.iloc[-1]
-        an = candle_anatomy(df).iloc[-1]
+        an = ctx.anatomy.iloc[-1]
         ema20 = df["close"].ewm(span=20, adjust=False).mean().iloc[-1]
         a = ctx.atr
         evidence, contra = [], []

@@ -11,7 +11,7 @@ trades the retest, not the sweep.
 
 from __future__ import annotations
 
-from mmm.analytics.structure import candle_anatomy, classify_structure
+from mmm.analytics.structure import classify_structure
 from mmm.signals.model import SetupCandidate
 from mmm.strategies.base import Strategy, StrategyContext
 
@@ -26,13 +26,13 @@ class StructureReversal(Strategy):
         if len(df) < 40:
             return None
         a = ctx.atr
-        an = candle_anatomy(df).iloc[-1]
+        an = ctx.anatomy.iloc[-1]
         bar = df.iloc[-1]
         n = len(df) - 1
         # find a CHoCH on one of the bars 2..8 back
         for back in range(2, 9):
             i = n - back
-            st = classify_structure(df, ctx.setup_swings, i)
+            st = classify_structure(df, ctx.setup_swings, i, atr_value=a)
             if st.last_event not in ("CHOCH_UP", "CHOCH_DOWN"):
                 continue
             if st.last_event == "CHOCH_UP" and st.last_high is not None:

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from mmm.analytics.structure import candle_anatomy
 from mmm.signals.model import SetupCandidate
 from mmm.strategies.base import Strategy, StrategyContext
 from mmm.timeutil import session_open
@@ -45,7 +44,7 @@ class OpeningRangeBreakout(Strategy):
             return None
         df = ctx.setup
         bar = df.iloc[-1]
-        an = candle_anatomy(df).iloc[-1]
+        an = ctx.anatomy.iloc[-1]
         prev_bars = df[(df["ts"] >= o + timedelta(minutes=self.or_minutes)) & (df["ts"] < bar["ts"])]
         gap = float(ctx.intraday_today["open"].iloc[0] - daily["close"].iloc[-1])
         ev, con = [f"OR{self.or_minutes} {orl:.0f}-{orh:.0f} (width {width/adr*100:.0f}% of ADR)"], []
