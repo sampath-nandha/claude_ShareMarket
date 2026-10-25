@@ -4,7 +4,7 @@
 secrets/
 
 # data - lives outside git
-data/
+/data/
 *.duckdb
 *.duckdb.wal
 *.sqlite
