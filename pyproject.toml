@@ -23,6 +23,7 @@ dependencies = [
     "typer>=0.12",
     "psutil>=5.9",
     "matplotlib>=3.8",
+    "pytz>=2024.1",
 ]
 
 [project.optional-dependencies]

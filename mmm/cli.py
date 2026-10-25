@@ -158,6 +158,68 @@ def get_config_universe():
     return get_config().universe
 
 
+@data_app.command("inventory")
+def inventory(detail: bool = typer.Option(False, help="List every instrument per interval instead of a summary")) -> None:
+    """Print what is actually in the archive: snapshots, candle coverage per interval/instrument, tick/depth/chain partitions."""
+    import glob
+
+    import duckdb
+    import pandas as pd
+
+    from mmm.data import paths
+    from mmm.data.instruments import load_instruments
+
+    root = paths.data_dir()
+    inst = load_instruments()
+    names = dict(zip(inst["instrument_token"].astype(int), inst["tradingsymbol"])) if not inst.empty else {}
+    con = duckdb.connect()
+    con.execute("SET TimeZone='Asia/Kolkata'")
+
+    typer.echo(f"Archive: {root}\n")
+    snaps = sorted((root / "instruments").glob("date=*")) if (root / "instruments").exists() else []
+    typer.echo(f"== Instrument snapshots: {len(snaps)}  " + (f"({snaps[0].name[5:]} .. {snaps[-1].name[5:]})" if snaps else "(none)"))
+
+    typer.echo("\n== Candles")
+    cdir = root / "candles"
+    for ivdir in sorted(cdir.glob("interval=*")) if cdir.exists() else []:
+        iv = ivdir.name.split("=", 1)[1]
+        toks = sorted(ivdir.glob("token=*"))
+        pattern = str(ivdir / "token=*" / "*.parquet")
+        if not glob.glob(pattern):
+            continue
+        tot = con.execute(f"SELECT count(*), min(ts), max(ts) FROM read_parquet('{pattern}')").fetchone()
+        typer.echo(f"  {iv:<9} instruments={len(toks):<4} rows={tot[0]:>10,}  {pd.Timestamp(tot[1]).date()} .. {pd.Timestamp(tot[2]).date()}")
+        if detail:
+            rows = con.execute(f"SELECT filename, count(*) n, min(ts) f, max(ts) l FROM read_parquet('{pattern}', filename=true) GROUP BY 1 ORDER BY 1").fetchall()
+            per_tok: dict[int, list] = {}
+            for fn, n, f, l in rows:
+                tok = int(fn.replace("\\", "/").split("token=")[1].split("/")[0])
+                p = per_tok.setdefault(tok, [0, f, l])
+                p[0] += n; p[1] = min(p[1], f); p[2] = max(p[2], l)
+            for tok, (n, f, l) in sorted(per_tok.items(), key=lambda kv: -kv[1][0]):
+                typer.echo(f"      {names.get(tok, tok):<28} {n:>9,}  {pd.Timestamp(f).date()} .. {pd.Timestamp(l).date()}")
+
+    for kind in ("ticks", "depth", "option_chain"):
+        base = root / kind
+        parts = sorted(base.glob("date=*")) if base.exists() else []
+        typer.echo(f"\n== {kind}: {len(parts)} partition(s)")
+        for p in parts[-10:]:
+            pattern = str(p / "*.parquet")
+            if not glob.glob(pattern):
+                continue
+            col = "tradingsymbol" if kind == "option_chain" else "instrument_token"
+            n, k = con.execute(f"SELECT count(*), count(DISTINCT {col}) FROM read_parquet('{pattern}', union_by_name=true)").fetchone()
+            size = sum(f.stat().st_size for f in p.glob("*.parquet")) / 1e6
+            typer.echo(f"  {p.name[5:]}  rows={n:>10,}  instruments={k:<5} files={len(list(p.glob('*.parquet'))):<4} {size:6.1f} MB")
+        if len(parts) > 10:
+            typer.echo(f"  ... {len(parts) - 10} older partition(s) not shown")
+    spool = list(paths.spool_dir().glob("*.parquet"))
+    if spool:
+        typer.echo(f"\n!! {len(spool)} spool file(s) waiting for replay")
+    total = sum(f.stat().st_size for f in root.rglob("*.parquet")) / 1e9
+    typer.echo(f"\nTotal Parquet on disk: {total:.2f} GB")
+
+
 @data_app.command("export-seed")
 def export_seed() -> None:
     """Copy the archive (instruments, candles, option_chain snapshots) into ./seed so it can be committed once."""
