@@ -13,7 +13,7 @@ and `tests/test_readonly.py` statically scans the code base for any write endpoi
 ```powershell
 git clone https://github.com/sampath-nandha/claude_ShareMarket
 cd claude_ShareMarket
-.\deploy\windows\install.ps1 -DataDir D:\ShareMarketData     # elevated PowerShell; creates venv, services, settings
+.\deploy\windows\install.ps1                            # elevated PowerShell; data goes to C:\ShareMarketData by default
 .\.venv\Scripts\mmm auth set-keys                            # API key/secret -> Windows Credential Manager
 .\.venv\Scripts\mmm auth login                               # every trading morning (Kite redirect is captured locally)
 .\.venv\Scripts\mmm data instruments                         # instrument master snapshot + universe
