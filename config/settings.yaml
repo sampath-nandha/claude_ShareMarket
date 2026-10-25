@@ -1,0 +1,150 @@
+# MoneyMakingMachine configuration. Secrets are NOT here (see .env.example / Credential Manager).
+
+universe:
+  index_symbol: "NIFTY 50"          # NSE index tradingsymbol in the instrument master
+  index_exchange: "NSE"
+  vix_symbol: "INDIA VIX"
+  fno_exchange: "NFO"
+  fno_name: "NIFTY"                 # `name` column for NIFTY futures & options in NFO
+  futures_contracts: 2              # near + next month
+  option_expiries: 2                # nearest N expiries
+  option_strikes_each_side: 12      # strikes above and below ATM per expiry (50-pt steps)
+  strike_step: 50
+  # Equal-weight constituent basket. Kite does not publish index weights, so this is
+  # labelled EQUAL-WEIGHT everywhere. Edit freely; keep tradingsymbols as on NSE.
+  constituents:
+    - RELIANCE
+    - HDFCBANK
+    - ICICIBANK
+    - INFY
+    - TCS
+    - ITC
+    - LT
+    - KOTAKBANK
+    - AXISBANK
+    - SBIN
+    - BHARTIARTL
+    - HINDUNILVR
+    - BAJFINANCE
+    - MARUTI
+    - M&M
+    - SUNPHARMA
+    - TITAN
+    - ULTRACEMCO
+    - NTPC
+    - POWERGRID
+    - TATAMOTORS
+    - TATASTEEL
+    - ASIANPAINT
+    - HCLTECH
+    - WIPRO
+    - ADANIENT
+    - ADANIPORTS
+    - BAJAJFINSV
+    - COALINDIA
+    - NESTLEIND
+    - ONGC
+    - JSWSTEEL
+    - GRASIM
+    - TECHM
+    - INDUSINDBK
+    - CIPLA
+    - DRREDDY
+    - EICHERMOT
+    - HINDALCO
+    - BRITANNIA
+    - DIVISLAB
+    - APOLLOHOSP
+    - TATACONSUM
+    - SBILIFE
+    - HDFCLIFE
+    - BPCL
+    - HEROMOTOCO
+    - BAJAJ-AUTO
+    - LTIM
+    - SHRIRAMFIN
+
+session:
+  timezone: "Asia/Kolkata"
+  open: "09:15"
+  close: "15:30"
+  collector_start: "09:00"
+  collector_stop: "15:40"
+  opening_range_minutes: [5, 15, 30]
+
+historical:
+  intervals: ["minute", "3minute", "5minute", "15minute", "30minute", "60minute", "day"]
+  # Kite historical API max days per request by interval (documented limits)
+  max_days_per_request:
+    minute: 60
+    3minute: 100
+    5minute: 100
+    10minute: 100
+    15minute: 200
+    30minute: 200
+    60minute: 400
+    day: 2000
+  requests_per_second: 3
+  backfill_years_index: 5
+  backfill_years_stocks: 2
+
+pricing:
+  # Internal modelling assumptions (NOT Zerodha data). Used by the Greeks engine.
+  risk_free_rate: 0.065
+  dividend_yield: 0.0
+  expiry_time: "15:30"
+  iv_min: 0.01
+  iv_max: 3.0
+
+risk:
+  account_capital: 500000
+  max_risk_per_trade_pct: 1.0
+  max_daily_loss_pct: 3.0
+  max_consecutive_losses: 3
+  max_daily_recommendations: 6
+  max_concurrent_positions: 2
+  min_reward_risk: 1.5
+  max_option_spread_pct: 1.5         # (ask-bid)/mid
+  min_option_oi: 50000
+  min_option_volume: 10000
+  max_signal_age_minutes: 10
+  min_data_quality: "PARTIAL"        # VALID > PARTIAL > STALE > SUSPECT > INVALID > MISSING
+  nifty_lot_size: 75
+
+costs:
+  # Zerodha charges for NFO options (per order unless stated). Verify against zerodha.com/charges.
+  brokerage_per_order: 20.0
+  stt_sell_pct: 0.1                  # on premium, sell side
+  exchange_txn_pct: 0.03503          # NSE options
+  sebi_pct: 0.0001
+  stamp_buy_pct: 0.003
+  gst_pct: 18.0                      # on brokerage + exchange txn + sebi
+  slippage_ticks: 2                  # research assumption, per side
+  tick_size: 0.05
+
+scoring:
+  # Initial research weights (hypotheses, not validated). Sum = 100.
+  price_action: 35
+  mtf_alignment: 15
+  futures: 15
+  options: 15
+  breadth: 10
+  liquidity: 10
+  thresholds:
+    watch: 40
+    valid: 55
+    strong: 70
+    high_conviction: 82
+
+validation:
+  min_trades_per_strategy: 200
+  confidence_level: 0.95
+  target_win_rate: 0.51
+  bootstrap_iterations: 2000
+
+strategies:
+  enabled: ["PA01", "PA02", "PA03", "PA04", "PA05"]
+  setup_timeframe: "5minute"
+  context_timeframe: "15minute"
+  trend_timeframe: "60minute"
+  entry_timeframe: "minute"

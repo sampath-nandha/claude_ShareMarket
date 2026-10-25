@@ -1,0 +1,47 @@
+[project]
+name = "mmm"
+version = "0.1.0"
+description = "MoneyMakingMachine - Zerodha-only NIFTY 50 price-action and options trading intelligence (read-only, no order execution)"
+requires-python = ">=3.12"
+dependencies = [
+    "kiteconnect>=5.0",
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "scipy>=1.12",
+    "polars>=1.0",
+    "duckdb>=1.0",
+    "pyarrow>=16",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.2",
+    "pyyaml>=6.0",
+    "streamlit>=1.35",
+    "plotly>=5.22",
+    "keyring>=25",
+    "httpx>=0.27",
+    "structlog>=24",
+    "apscheduler>=3.10,<4",
+    "typer>=0.12",
+    "psutil>=5.9",
+    "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-cov", "ruff"]
+
+[project.scripts]
+mmm = "mmm.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mmm"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"

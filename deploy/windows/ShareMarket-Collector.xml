@@ -1,0 +1,18 @@
+<service>
+  <id>ShareMarket-Collector</id>
+  <name>ShareMarket Collector</name>
+  <description>MoneyMakingMachine live Kite WebSocket collector (read-only). Restarts on failure.</description>
+  <executable>__REPO__\.venv\Scripts\python.exe</executable>
+  <arguments>-m mmm.cli collect</arguments>
+  <workingdirectory>__REPO__</workingdirectory>
+  <env name="MMM_DATA_DIR" value="__DATADIR__"/>
+  <log mode="roll-by-size"><sizeThreshold>10240</sizeThreshold><keepFiles>8</keepFiles></log>
+  <logpath>__DATADIR__\logs</logpath>
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+  <onfailure action="restart" delay="60 sec"/>
+  <resetfailure>1 hour</resetfailure>
+  <startmode>Automatic</startmode>
+  <delayedAutoStart>true</delayedAutoStart>
+  <stoptimeout>30 sec</stoptimeout>
+</service>

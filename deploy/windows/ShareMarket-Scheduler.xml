@@ -1,0 +1,16 @@
+<service>
+  <id>ShareMarket-Scheduler</id>
+  <name>ShareMarket Scheduler</name>
+  <description>MoneyMakingMachine scheduler: instrument snapshot, option-chain snapshots, EOD update, health alerts.</description>
+  <executable>__REPO__\.venv\Scripts\python.exe</executable>
+  <arguments>-m mmm.cli schedule</arguments>
+  <workingdirectory>__REPO__</workingdirectory>
+  <env name="MMM_DATA_DIR" value="__DATADIR__"/>
+  <log mode="roll-by-size"><sizeThreshold>10240</sizeThreshold><keepFiles>8</keepFiles></log>
+  <logpath>__DATADIR__\logs</logpath>
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="60 sec"/>
+  <resetfailure>1 hour</resetfailure>
+  <startmode>Automatic</startmode>
+  <stoptimeout>30 sec</stoptimeout>
+</service>
