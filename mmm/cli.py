@@ -158,6 +158,74 @@ def get_config_universe():
     return get_config().universe
 
 
+@data_app.command("verify")
+def verify(repair: bool = typer.Option(False, help="Re-fetch missing/partial sessions from Kite"),
+           years: float = typer.Option(3.0, help="How far back the index/VIX/futures history is expected to reach"),
+           include_options: bool = typer.Option(True, help="Also check the active option contracts (minute)")) -> None:
+    """Check every tracked instrument/interval for missing or partial sessions; optionally repair them."""
+    from collections import Counter
+
+    from mmm.data.instruments import build_universe, load_instruments
+    from mmm.data.verify import check, repair as _repair, summarise
+    from mmm.settings import get_config
+
+    cfg = get_config()
+    inst = load_instruments()
+    if inst.empty:
+        raise typer.BadParameter("No instrument snapshot; run `mmm data instruments` first")
+    uni = build_universe(inst, None)
+    start = date.today() - timedelta(days=int(years * 365))
+    targets: list[tuple[int, str, list[str], date | None]] = []
+    if uni.index is not None:
+        targets.append((int(uni.index["instrument_token"]), cfg.universe.index_symbol, cfg.historical.intervals, start))
+    if uni.vix is not None:
+        targets.append((int(uni.vix["instrument_token"]), cfg.universe.vix_symbol, cfg.historical.intervals, start))
+    for r in uni.futures.itertuples():
+        targets.append((int(r.instrument_token), r.tradingsymbol, cfg.historical.intervals, None))
+    if include_options:
+        for r in uni.options.itertuples():
+            targets.append((int(r.instrument_token), r.tradingsymbol, ["minute"], None))
+    covs = []
+    for tok, name, intervals, st in targets:
+        for iv in intervals:
+            covs.append(check(tok, name, iv, start=st))
+    df = summarise(covs)
+    core = df[~df["instrument"].str.contains("CE$|PE$", regex=True)]
+    typer.echo("== Index / VIX / futures")
+    typer.echo(core.to_string(index=False))
+    if include_options:
+        opt = df[df["instrument"].str.contains("CE$|PE$", regex=True)]
+        typer.echo(f"\n== Options ({len(opt)} contracts, minute): OK={int((opt['status'] == 'OK').sum())} GAPS={int((opt['status'] == 'GAPS').sum())} EMPTY={int((opt['status'] == 'EMPTY').sum())}")
+        bad = opt[opt["status"] != "OK"]
+        if not bad.empty:
+            typer.echo(bad.head(30).to_string(index=False))
+            if len(bad) > 30:
+                typer.echo(f"  ... {len(bad) - 30} more")
+    # dates missing from every core instrument are almost certainly holidays not in market_holidays.yaml
+    core_covs = [c for c in covs if not (c.name.endswith("CE") or c.name.endswith("PE")) and c.interval == "minute" and c.rows > 0]
+    if core_covs:
+        cnt = Counter(d for c in core_covs for d in c.missing)
+        common = sorted(d for d, n in cnt.items() if n == len(core_covs))
+        if common:
+            typer.echo(f"\nDates missing for ALL core instruments (likely exchange holidays not listed in config/market_holidays.yaml): {', '.join(str(d) for d in common)}")
+    gaps = [c for c in covs if not c.ok and c.rows > 0]
+    empties = [c for c in covs if c.rows == 0]
+    typer.echo(f"\nSummary: {sum(1 for c in covs if c.ok)} OK, {len(gaps)} with gaps, {len(empties)} empty")
+    if repair and (gaps or empties):
+        from mmm.broker.auth import get_client
+
+        client = get_client()
+        for c in gaps:
+            n = _repair(client, c)
+            typer.echo(f"  repaired {c.name} {c.interval}: {n} rows ({len(c.missing)} missing, {len(c.partial)} partial sessions)")
+        for c in empties:
+            from mmm.data.historical import backfill as _bf
+
+            n = _bf(client, c.token, c.interval, start if c.name in (cfg.universe.index_symbol, cfg.universe.vix_symbol) else date.today() - timedelta(days=100))
+            typer.echo(f"  backfilled {c.name} {c.interval}: {n} rows")
+        typer.echo("Re-run `mmm data verify` to confirm. Sessions still missing after repair are days Kite has no data for (holidays/special sessions).")
+
+
 @data_app.command("inventory")
 def inventory(detail: bool = typer.Option(False, help="List every instrument per interval instead of a summary")) -> None:
     """Print what is actually in the archive: snapshots, candle coverage per interval/instrument, tick/depth/chain partitions."""
