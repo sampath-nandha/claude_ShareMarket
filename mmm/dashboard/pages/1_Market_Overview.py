@@ -27,16 +27,39 @@ top[3].metric("ATR (5m)", fmt(ctx.atr, 1))
 top[4].metric("Setup TF structure", ctx.setup_structure.trend, ctx.setup_structure.last_event or "")
 top[5].metric("Context TF structure", ctx.context_structure.trend, ctx.context_structure.last_event or "")
 
-tf = st.radio("Chart timeframe", ["minute", "5minute", "15minute", "60minute", "day"], index=1, horizontal=True)
+r1, r2 = st.columns([2, 3])
+has_fut = not b.futures_bars.empty
+instrument = r1.radio("Instrument", ["Spot (NIFTY 50)", "Futures (near month)", "Spot + futures overlay"] if has_fut else ["Spot (NIFTY 50)"], horizontal=True)
+tf = r2.radio("Chart timeframe", ["minute", "5minute", "15minute", "60minute", "day"], index=1, horizontal=True)
 show_levels = st.checkbox("Show levels", True)
 show_swings = st.checkbox("Show swings", True)
 sess_n = st.slider("Sessions to show", 1, 20, 3)
 sessions = sorted(b.minute_bars["ts"].dt.date.unique())[-sess_n:]
-bars = b.minute_bars[b.minute_bars["ts"].dt.date.isin(sessions)]
-df = resample(bars, tf) if tf != "minute" else bars
-sw = pivot_swings(df.reset_index(drop=True), 3, 3) if show_swings and len(df) > 10 else None
-ema = {"EMA20": df["close"].ewm(span=20, adjust=False).mean(), "EMA50": df["close"].ewm(span=50, adjust=False).mean()}
-st.plotly_chart(candlestick(df, f"NIFTY 50 · {tf}", ctx.levels if show_levels else None, sw, extra_lines=ema), width="stretch")
+spot_bars = b.minute_bars[b.minute_bars["ts"].dt.date.isin(sessions)]
+fut_bars = b.futures_bars[b.futures_bars["ts"].dt.date.isin(sessions)] if has_fut else pd.DataFrame()
+spot_df = resample(spot_bars, tf) if tf != "minute" else spot_bars
+fut_df = (resample(fut_bars, tf) if tf != "minute" else fut_bars) if has_fut and not fut_bars.empty else pd.DataFrame()
+if has_fut and b.futures_quote.get("last_price"):
+    basis = float(b.futures_quote["last_price"]) - b.spot
+    st.caption(f"{b.futures_symbol}: {b.futures_quote['last_price']:,.2f} · basis {basis:+.1f} pts ({basis / b.spot * 100:+.2f}%) · futures carry volume/OI, the index does not")
+if instrument.startswith("Spot"):
+    df = spot_df
+    sw = pivot_swings(df.reset_index(drop=True), 3, 3) if show_swings and len(df) > 10 else None
+    ema = {"EMA20": df["close"].ewm(span=20, adjust=False).mean(), "EMA50": df["close"].ewm(span=50, adjust=False).mean()}
+    if instrument.endswith("overlay") and not fut_df.empty:
+        aligned = fut_df.set_index("ts")["close"].reindex(df["ts"]).to_numpy()
+        ema[f"{b.futures_symbol} close"] = pd.Series(aligned, index=df.index)
+    st.plotly_chart(candlestick(df, f"NIFTY 50 · {tf}" + (" + futures overlay" if instrument.endswith("overlay") else ""),
+                                ctx.levels if show_levels else None, sw, extra_lines=ema), width="stretch")
+else:
+    df = fut_df
+    if df.empty:
+        st.info("No futures candles stored yet. Run `mmm data backfill` (futures are included) or wait for live capture.")
+    else:
+        sw = pivot_swings(df.reset_index(drop=True), 3, 3) if show_swings and len(df) > 10 else None
+        ema = {"EMA20": df["close"].ewm(span=20, adjust=False).mean(), "EMA50": df["close"].ewm(span=50, adjust=False).mean()}
+        st.plotly_chart(candlestick(df, f"{b.futures_symbol} · {tf}", None, sw, extra_lines=ema, show_volume=True), width="stretch")
+        st.caption("Levels are computed on the index and are not drawn on the futures chart (they would be offset by the basis).")
 
 c1, c2 = st.columns([1, 1])
 with c1:

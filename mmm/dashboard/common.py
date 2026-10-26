@@ -42,6 +42,8 @@ class Bundle:
     universe_size: int
     vix: float | None = None
     notes: list[str] = field(default_factory=list)
+    futures_bars: pd.DataFrame = field(default_factory=pd.DataFrame)   # near-month futures 1m candles
+    futures_symbol: str = ""
 
 
 @st.cache_resource
@@ -78,12 +80,16 @@ def load_bundle(days: int = 40) -> Bundle:
                 else:
                     notes.append("no option-chain snapshot in state DB yet (collector not running)")
                 fut_q: dict[str, Any] = {}
+                fut_bars, fut_sym = pd.DataFrame(), ""
                 if not uni.futures.empty:
-                    fut_q = quotes.get(int(uni.futures.iloc[0]["instrument_token"]), {})
+                    fut_tok = int(uni.futures.iloc[0]["instrument_token"])
+                    fut_q = quotes.get(fut_tok, {})
+                    fut_sym = str(uni.futures.iloc[0]["tradingsymbol"])
+                    fut_bars = _real_minute_bars(fut_tok, days)
                 cons = pd.DataFrame([quotes[t] for t in uni.constituents["instrument_token"].astype(int) if t in quotes]) if not uni.constituents.empty else pd.DataFrame()
                 vix_q = quotes.get(int(uni.vix["instrument_token"])) if uni.vix is not None else None
                 return Bundle(False, as_of, spot, bars, chain, uni.expiries, fut_q, cons, len(cfg.universe.constituents),
-                              float(vix_q["last_price"]) if vix_q and vix_q.get("last_price") else None, notes)
+                              float(vix_q["last_price"]) if vix_q and vix_q.get("last_price") else None, notes, fut_bars, fut_sym)
     # ---- demo fallback ----
     bars = demo.demo_minute_bars(days=days)
     as_of = bars["ts"].iloc[-1].to_pydatetime() + timedelta(minutes=1)
@@ -92,8 +98,12 @@ def load_bundle(days: int = 40) -> Bundle:
     e2 = e1 + timedelta(days=7)
     chain = pd.concat([demo.demo_option_chain(spot, e1, as_of, seed=7), demo.demo_option_chain(spot, e2, as_of, seed=8, base_iv=0.135)])
     chain = enrich_chain(chain, spot, as_of)
+    fut_bars = bars.copy()
+    for c_ in ("open", "high", "low", "close"):
+        fut_bars[c_] = fut_bars[c_] + 45.0  # demo basis
+    fut_bars["volume"] = 15000
     return Bundle(True, as_of, spot, bars, chain, [e1, e2], demo.demo_futures_quote(spot), demo.demo_constituent_quotes(),
-                  50, 13.8, ["demo"])
+                  50, 13.8, ["demo"], fut_bars, "NIFTY-DEMO-FUT")
 
 
 def banner(b: Bundle) -> None:
