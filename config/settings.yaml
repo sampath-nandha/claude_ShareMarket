@@ -64,6 +64,39 @@ universe:
     - LTIM
     - SHRIRAMFIN
 
+# ---------------------------------------------------------------------------------------------------
+# Data sources. Zerodha remains the broker (read-only, never places orders) and the instrument master of
+# record. TrueData and Accelpix are licensed market-data vendors used for live ticks and for history that
+# Zerodha cannot serve (expired option contracts). Every candle carries a `source` column so nothing is
+# ever mislabelled. Credentials: `mmm auth set-truedata`, `mmm auth set-accelpix` (never in this file).
+data_sources:
+  live: "zerodha"                          # zerodha | truedata | accelpix  (which WebSocket the collector uses; vendor feeds pending)
+  history: ["zerodha"]                     # priority order for backfill / repair (add truedata/accelpix once enabled)
+  instruments: "zerodha"                   # zerodha | truedata | accelpix  (which symbol master seeds the universe)
+  truedata:
+    live_host: "push.truedata.in"
+    live_port: 8084                        # 8086 = sandbox
+    history_url: "https://history.truedata.in"
+    auth_url: "https://auth.truedata.in/token"
+    api_url: "https://api.truedata.in"
+    bar_limits: {per_second: 10, per_minute: 600, per_hour: 18000}   # documented REST limits
+    tick_limits: {per_second: 5, per_minute: 300, per_hour: 18000}
+    max_days_per_request: {minute: 30, day: 1500}
+    symbol_overrides: {}                   # canonical tradingsymbol -> TrueData symbol, if a name differs
+  accelpix:
+    host: "apidata.accelpix.in"            # provided by Accelpix with the API key
+    hub_path: "/api/fda/apidata/stream"
+    master_path: "/api/hsd/Masters/2"
+    requests_per_second: 2
+    max_days_per_request: {minute: 30, day: 1500}
+    symbol_overrides: {}
+  # NIFTY weekly expiry weekday by period (0=Mon..4=Fri). Used only to synthesise expired contract names when a
+  # vendor symbol master is unavailable; the vendor master wins whenever it can be downloaded.
+  weekly_expiry_rules:
+    - {from_date: "2000-01-01", weekday: 3}
+    - {from_date: "2025-09-01", weekday: 1}
+  expired_option_strikes_each_side: 12
+
 session:
   timezone: "Asia/Kolkata"
   open: "09:15"

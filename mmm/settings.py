@@ -25,6 +25,11 @@ class Secrets(BaseSettings):
     data_dir: Path = PROJECT_ROOT / "data"
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
+    # Vendor credentials (env/.env fallback; Credential Manager + session file preferred, see providers.credentials)
+    truedata_user: str = ""
+    truedata_password: str = ""
+    accelpix_api_key: str = ""
+    accelpix_host: str = ""
 
 
 class UniverseCfg(BaseModel):
@@ -124,8 +129,53 @@ class StrategiesCfg(BaseModel):
     entry_timeframe: str = "minute"
 
 
+class RateLimitCfg(BaseModel):
+    per_second: float = 10
+    per_minute: float = 600
+    per_hour: float = 18000
+
+
+class TrueDataCfg(BaseModel):
+    live_host: str = "push.truedata.in"
+    live_port: int = 8084                       # 8086 = sandbox
+    history_url: str = "https://history.truedata.in"
+    auth_url: str = "https://auth.truedata.in/token"
+    api_url: str = "https://api.truedata.in"
+    bar_limits: RateLimitCfg = Field(default_factory=lambda: RateLimitCfg(per_second=10, per_minute=600, per_hour=18000))
+    tick_limits: RateLimitCfg = Field(default_factory=lambda: RateLimitCfg(per_second=5, per_minute=300, per_hour=18000))
+    max_days_per_request: dict[str, int] = Field(default_factory=lambda: {"minute": 30, "day": 1500})
+    symbol_overrides: dict[str, str] = Field(default_factory=dict)   # canonical tradingsymbol -> TrueData symbol
+
+
+class AccelpixCfg(BaseModel):
+    host: str = "apidata.accelpix.in"
+    hub_path: str = "/api/fda/apidata/stream"
+    master_path: str = "/api/hsd/Masters/2"
+    requests_per_second: float = 2
+    max_days_per_request: dict[str, int] = Field(default_factory=lambda: {"minute": 30, "day": 1500})
+    symbol_overrides: dict[str, str] = Field(default_factory=dict)
+
+
+class ExpiryRuleCfg(BaseModel):
+    from_date: str = "2000-01-01"
+    weekday: int = 3                            # 0=Mon ... 3=Thu
+
+
+class DataSourcesCfg(BaseModel):
+    """Which vendor feeds what. Zerodha stays the broker (read-only) and the instrument master of record."""
+
+    live: str = "zerodha"                                    # zerodha | truedata | accelpix
+    history: list[str] = Field(default_factory=lambda: ["zerodha"])
+    instruments: str = "zerodha"                             # zerodha | truedata | accelpix
+    truedata: TrueDataCfg = Field(default_factory=TrueDataCfg)
+    accelpix: AccelpixCfg = Field(default_factory=AccelpixCfg)
+    weekly_expiry_rules: list[ExpiryRuleCfg] = Field(default_factory=lambda: [ExpiryRuleCfg()])
+    expired_option_strikes_each_side: int = 12
+
+
 class AppConfig(BaseModel):
     universe: UniverseCfg = Field(default_factory=UniverseCfg)
+    data_sources: DataSourcesCfg = Field(default_factory=DataSourcesCfg)
     session: SessionCfg = Field(default_factory=SessionCfg)
     historical: HistoricalCfg = Field(default_factory=HistoricalCfg)
     pricing: PricingCfg = Field(default_factory=PricingCfg)
