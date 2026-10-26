@@ -86,6 +86,7 @@ class Collector:
     def _on_noreconnect(self, _ws) -> None:
         log.error("ws_gave_up_reconnecting")
         self.state.heartbeat("collector", "DOWN", reason="noreconnect")
+        self._stop.set()  # let the supervisor loop retry with a fresh connection/token
 
     # --- writer thread -------------------------------------------------------------------------
     def _writer(self) -> None:
@@ -170,7 +171,8 @@ class Collector:
             depth_to_frame(depth).to_parquet(spool_dir() / f"depth_{stamp}.parquet", index=False)
 
     # --- lifecycle -----------------------------------------------------------------------------
-    def run(self, api_key: str, access_token: str) -> None:
+    def run(self, api_key: str, access_token: str, until: datetime | None = None) -> None:
+        """Connect and collect until `until` (IST) or until stopped."""
         from kiteconnect import KiteTicker  # lazy: tests don't need it
 
         self._ticker = KiteTicker(api_key, access_token, reconnect=True, reconnect_max_tries=50, reconnect_max_delay=60)
@@ -187,6 +189,9 @@ class Collector:
         try:
             kws.connect(threaded=True)
             while not self._stop.is_set():
+                if until is not None and now_ist() >= until:
+                    log.info("collector_window_closed", until=until.isoformat())
+                    break
                 time.sleep(1)
         finally:
             self.stop()
@@ -203,15 +208,70 @@ class Collector:
 
 
 def run_collector(spot_hint: float | None = None) -> None:
-    """Entry point used by the CLI / Windows service."""
+    """Service entry point: a supervisor loop that only collects inside the configured window on trading days.
+
+    Outside the window it idles (heartbeat IDLE). Without a valid token it waits (heartbeat WAITING_TOKEN) instead of
+    crashing, so the Windows service never enters a restart loop; the collector connects as soon as `mmm auth login`
+    has run. Any exception inside a session is logged and retried after 30 s.
+    """
+    from datetime import datetime as _dt
+
+    from mmm.settings import get_config
+    from mmm.timeutil import IST, is_trading_day, parse_hhmm
+
+    state = StateDB()
     store = TokenStore()
-    token = store.access_token()
-    if not token:
-        raise RuntimeError("No Kite access token for today; run `mmm auth login` first")
-    inst = load_instruments()
-    if inst.empty:
-        raise RuntimeError("No instrument snapshot; run `mmm data instruments` first")
-    uni = build_universe(inst, spot_hint)
-    log.info("universe", futures=len(uni.futures), options=len(uni.options), constituents=len(uni.constituents),
-             expiries=[str(e) for e in uni.expiries], atm=uni.atm_strike)
-    Collector(uni).run(store.api_key(), token)
+    last_warn = 0.0
+    while True:
+        try:
+            now = now_ist()
+            today = now.date()
+            scfg = get_config().session
+            start = _dt.combine(today, parse_hhmm(scfg.collector_start), tzinfo=IST)
+            stop = _dt.combine(today, parse_hhmm(scfg.collector_stop), tzinfo=IST)
+            if not is_trading_day(today):
+                state.heartbeat("collector", "IDLE", reason="not a trading day")
+                time.sleep(1800)
+                continue
+            if now < start:
+                state.heartbeat("collector", "IDLE", reason=f"waiting for {scfg.collector_start}")
+                time.sleep(min(60, max(1, (start - now).total_seconds())))
+                continue
+            if now >= stop:
+                state.heartbeat("collector", "IDLE", reason="session window closed")
+                time.sleep(1800)
+                continue
+            token = store.access_token()
+            if not token:
+                state.heartbeat("collector", "WAITING_TOKEN", reason="run `mmm auth login`")
+                if time.monotonic() - last_warn > 300:
+                    log.warning("collector_waiting_for_token")
+                    last_warn = time.monotonic()
+                time.sleep(30)
+                continue
+            inst = load_instruments()
+            stale = inst.empty or ("snapshot_date" in inst and pd.Timestamp(inst["snapshot_date"].max()).date() < today)
+            if stale:
+                try:
+                    from mmm.broker.auth import get_client
+                    from mmm.data.instruments import snapshot_instruments
+
+                    inst = snapshot_instruments(get_client())
+                except Exception as exc:
+                    log.error("instrument_snapshot_failed", error=str(exc))
+                    if inst.empty:
+                        time.sleep(60)
+                        continue
+            spot = spot_hint or state.get_kv("spot")
+            uni = build_universe(inst, spot)
+            log.info("universe", futures=len(uni.futures), options=len(uni.options), constituents=len(uni.constituents),
+                     expiries=[str(e) for e in uni.expiries], atm=uni.atm_strike)
+            Collector(uni, state).run(store.api_key(), token, until=stop)
+            time.sleep(30)  # brief pause before re-evaluating (reconnect / window end)
+        except KeyboardInterrupt:
+            state.heartbeat("collector", "STOPPED", reason="interrupted")
+            return
+        except Exception as exc:
+            log.error("collector_loop_error", error=str(exc))
+            state.heartbeat("collector", "ERROR", error=str(exc))
+            time.sleep(30)
