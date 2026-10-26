@@ -14,19 +14,25 @@ b = load_bundle(days=60)
 banner(b)
 sessions = sorted(b.minute_bars["ts"].dt.date.unique())
 day = st.selectbox("Session", sessions[::-1], index=0)
-bars = session_bars(b.minute_bars, day)
+bars = session_bars(b.minute_bars, day).reset_index(drop=True)
 n = len(bars)
+MIN_BARS = 31
+if n < MIN_BARS:
+    st.info(f"Session {day} has only {n} captured minute bars (need at least {MIN_BARS} to replay). Pick another session, or wait for more data if this is today.")
+    st.stop()
+lo = 30
 if "replay_i" not in st.session_state or st.session_state.get("replay_day") != day:
-    st.session_state.replay_i, st.session_state.replay_day = 60, day
+    st.session_state.replay_i, st.session_state.replay_day = min(60, n), day
+st.session_state.replay_i = int(min(max(st.session_state.replay_i, lo), n))
 c = st.columns([1, 1, 1, 6])
 if c[0].button("⏮ Start"):
-    st.session_state.replay_i = 30
+    st.session_state.replay_i = lo
 if c[1].button("◀ -5m"):
-    st.session_state.replay_i = max(30, st.session_state.replay_i - 5)
+    st.session_state.replay_i = max(lo, st.session_state.replay_i - 5)
 if c[2].button("▶ +5m"):
     st.session_state.replay_i = min(n, st.session_state.replay_i + 5)
-st.session_state.replay_i = c[3].slider("Minute of session", 30, n, st.session_state.replay_i)
-i = st.session_state.replay_i
+st.session_state.replay_i = c[3].slider("Minute of session", lo, n, st.session_state.replay_i)
+i = int(min(max(st.session_state.replay_i, lo), n))
 cursor = bars["ts"].iloc[i - 1] + timedelta(minutes=1)
 past = b.minute_bars[b.minute_bars["ts"] < cursor]
 ctx = build_context(past, cursor.to_pydatetime())
