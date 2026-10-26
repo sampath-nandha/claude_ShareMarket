@@ -11,8 +11,12 @@ Secrets never touch the repo. Fallback for headless use: paste the request_token
 
 from __future__ import annotations
 
+import json
+import os
+import subprocess
 import threading
 import webbrowser
+from pathlib import Path
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -29,7 +33,15 @@ SERVICE = "mmm-kite"
 
 
 class TokenStore:
-    """Credential-store backed secret storage, with .env values as the read-only fallback for keys."""
+    """Secret storage with two layers.
+
+    1. OS credential store (Windows Credential Manager via `keyring`) - per user, holds api_key, api_secret and the
+       daily access token. Written by `mmm auth set-keys` / `mmm auth login` run by the interactive user.
+    2. A session file under the data directory (`token/session.json`) holding api_key + access token + date.
+       Windows services run as SYSTEM and cannot read the user's Credential Manager, so the file is what the
+       collector and scheduler services use. It never contains the API secret, and the token in it dies daily.
+    `.env` values remain the final fallback for the keys.
+    """
 
     def __init__(self) -> None:
         try:
@@ -39,6 +51,7 @@ class TokenStore:
         except Exception:  # pragma: no cover - keyring missing on exotic platforms
             self._keyring = None
 
+    # --- keyring layer ---------------------------------------------------------------------------
     def _get(self, name: str) -> str | None:
         if self._keyring is None:
             return None
@@ -53,8 +66,37 @@ class TokenStore:
             raise RuntimeError("keyring is not available; cannot store secret")
         self._keyring.set_password(SERVICE, name, value)
 
+    # --- session file layer ----------------------------------------------------------------------
+    @staticmethod
+    def _session_path() -> Path:
+        from mmm.data.paths import data_dir
+
+        d = data_dir() / "token"
+        d.mkdir(parents=True, exist_ok=True)
+        return d / "session.json"
+
+    def _read_session(self) -> dict[str, str]:
+        try:
+            p = self._session_path()
+            return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+        except Exception as exc:
+            log.warning("session_file_unreadable", error=str(exc))
+            return {}
+
+    def _write_session(self, **fields: str) -> None:
+        try:
+            data = {**self._read_session(), **fields}
+            p = self._session_path()
+            p.write_text(json.dumps(data), encoding="utf-8")
+            if os.name == "nt":  # restrict to the current user + SYSTEM (services) - best effort
+                user = os.environ.get("USERNAME", "")
+                subprocess.run(["icacls", str(p), "/inheritance:r", "/grant:r", f"{user}:F", "SYSTEM:F"], capture_output=True)
+        except Exception as exc:
+            log.warning("session_file_write_failed", error=str(exc))
+
+    # --- public API --------------------------------------------------------------------------------
     def api_key(self) -> str:
-        return self._get("api_key") or get_secrets().kite_api_key
+        return self._get("api_key") or self._read_session().get("api_key", "") or get_secrets().kite_api_key
 
     def api_secret(self) -> str:
         return self._get("api_secret") or get_secrets().kite_api_secret
@@ -62,23 +104,30 @@ class TokenStore:
     def set_keys(self, api_key: str, api_secret: str) -> None:
         self._set("api_key", api_key)
         self._set("api_secret", api_secret)
+        self._write_session(api_key=api_key)
 
     def access_token(self) -> str | None:
         """Return today's access token, or None if absent/expired (tokens die ~6 AM IST next day)."""
-        tok = self._get("access_token")
-        stamp = self._get("access_token_date")
-        if not tok or not stamp:
-            return None
-        if stamp != now_ist().date().isoformat():
+        today = now_ist().date().isoformat()
+        tok, stamp = self._get("access_token"), self._get("access_token_date")
+        if not tok or stamp != today:
+            sess = self._read_session()
+            tok, stamp = sess.get("access_token"), sess.get("access_token_date")
+        if not tok or stamp != today:
             return None
         return tok
 
     def set_access_token(self, token: str) -> None:
-        self._set("access_token", token)
-        self._set("access_token_date", now_ist().date().isoformat())
+        today = now_ist().date().isoformat()
+        try:
+            self._set("access_token", token)
+            self._set("access_token_date", today)
+        except Exception as exc:
+            log.warning("keyring_write_failed", error=str(exc))
+        self._write_session(api_key=self.api_key(), access_token=token, access_token_date=today)
 
     def token_issued_on(self) -> str | None:
-        return self._get("access_token_date")
+        return self._get("access_token_date") or self._read_session().get("access_token_date")
 
 
 def _make_kite(api_key: str):
