@@ -1,7 +1,7 @@
 """PA05 - Support/Resistance Rejection (reversal at a strong zone).
 
 Regimes: any; disabled when regime is STRONG trending against the trade. Zone Z: strength >= 60 (ZONE_*) or
-PDH/PDL/PWH/PWL. The decision bar touches Z (wick within 0.25 ATR beyond or short of the level) and rejects:
+PDH/PDL/PWH/PWL, or an option OI wall (OI_R/OI_S) with strength >= 60. The decision bar touches Z (wick within 0.25 ATR beyond or short of the level) and rejects:
 pin bar or engulfing in the opposite direction with range >= 0.7 ATR and close back on the far side of Z by
 >= 0.1 ATR. The previous 2 bars must not have already rejected the same zone (first touch only).
 Entry = close. Stop = rejection extreme +/- 0.15 ATR. T1/T2 from levels / R multiples.
@@ -29,7 +29,7 @@ class SRRejection(Strategy):
         an, bar = ana.iloc[-1], df.iloc[-1]
         if an["range"] < 0.7 * a:
             return None
-        zones = [lv for lv in ctx.levels if lv.kind in HARD or (lv.kind.startswith("ZONE") and lv.strength >= 60)]
+        zones = [lv for lv in ctx.levels if lv.kind in HARD or (lv.kind.startswith(("ZONE", "OI_")) and lv.strength >= 60)]
         prev = df.iloc[-3:-1]
         for lv in sorted(zones, key=lambda x: -x.strength):
             Z = lv.price

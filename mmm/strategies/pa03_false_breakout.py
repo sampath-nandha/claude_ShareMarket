@@ -1,6 +1,6 @@
 """PA03 - False Breakout (failed break / liquidity sweep reversal).
 
-Regimes: any; strongest in SIDEWAYS / MEAN_REVERTING. Level L = PDH/PDL, ORH/ORL, PWH/PWL, SH/SL or zone >= 50.
+Regimes: any; strongest in SIDEWAYS / MEAN_REVERTING. Level L = PDH/PDL, ORH/ORL, PWH/PWL, SH/SL, zone >= 50 or option OI wall (OI_R/OI_S).
 Sweep: within the last 3 setup bars (including the decision bar) price traded beyond L by >= 0.15 ATR.
 Failure: the decision bar closes back inside the level by >= 0.1 ATR, with close_loc opposing the break
 (for a failed upside break: close_loc <= 0.4) and the bar's range >= 0.6 ATR.
@@ -13,7 +13,7 @@ from __future__ import annotations
 from mmm.signals.model import SetupCandidate
 from mmm.strategies.base import Strategy, StrategyContext
 
-LEVEL_KINDS = ("PDH", "PDL", "PWH", "PWL", "ORH", "ORL", "SH", "SL", "ZONE_R", "ZONE_S")
+LEVEL_KINDS = ("PDH", "PDL", "PWH", "PWL", "ORH", "ORL", "SH", "SL", "ZONE_R", "ZONE_S", "OI_R", "OI_S")
 
 
 class FalseBreakout(Strategy):

@@ -23,13 +23,14 @@ def _all() -> list[Strategy]:
     from mmm.strategies.pa11_opening_drive import OpeningDrive
     from mmm.strategies.pa12_opening_trap import OpeningTrap
     from mmm.strategies.pa13_basis_divergence import BasisDivergence
+    from mmm.strategies.pa14_oi_wall import OIWall
 
     return [TrendPullback(), BreakoutRetest(), FalseBreakout(), OpeningRangeBreakout(), SRRejection(), StructureReversal(),
             ConsolidationBreakout(), RangeMeanReversion(), CompressionContinuation(), FailedBreakdownRecovery(),
-            OpeningDrive(), OpeningTrap(), BasisDivergence()]
+            OpeningDrive(), OpeningTrap(), BasisDivergence(), OIWall()]
 
 
-ALL_IDS = ["PA01", "PA02", "PA03", "PA04", "PA05", "PA06", "PA07", "PA08", "PA09", "PA10", "PA11", "PA12", "PA13"]
+ALL_IDS = ["PA01", "PA02", "PA03", "PA04", "PA05", "PA06", "PA07", "PA08", "PA09", "PA10", "PA11", "PA12", "PA13", "PA14"]
 
 
 def load_strategies(enabled: list[str] | None = None, apply_registry: bool = True) -> list[Strategy]:
