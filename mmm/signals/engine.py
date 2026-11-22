@@ -247,7 +247,13 @@ def mtf_alignment(ctx: StrategyContext, direction: int) -> float:
 
 
 def stage2(ctx: StrategyContext, strategy: Strategy, cand: SetupCandidate, conf: Confirmations,
-           risk_state: RiskState | None = None, now: datetime | None = None) -> Signal:
+           risk_state: RiskState | None = None, now: datetime | None = None,
+           feature_registry: dict[str, Any] | None = None) -> Signal:
+    """Confirm, score and risk-check a Stage-1 candidate.
+
+    Release-1 features (gap/opening/CPR/IB, basis, option OI) adjust the score only when the Phase-4 feature study
+    marked them PASS (`feature_registry`, default: the state DB). Unvalidated features are listed, never scored.
+    """
     d = 1 if cand.direction == "BULLISH" else -1
     now = now or ctx.as_of
     fut = (conf.futures or {}).get("confirmation_score", 0.0) or 0.0
@@ -255,9 +261,18 @@ def stage2(ctx: StrategyContext, strategy: Strategy, cand: SetupCandidate, conf:
     br = conf.breadth or {}
     breadth_score = (br.get("score", 0.0) or 0.0) * d if br.get("authoritative", False) else 0.0
     liq = (conf.liquidity or {}).get("score", 0.5)
-    comps = Components(cand.pa_score, mtf_alignment(ctx, d), fut, opt, breadth_score, liq)
+    from mmm.research.features import adjustments as feature_adjustments
+
+    adj = feature_adjustments(ctx, d, feature_registry)
+    pa = float(np.clip(cand.pa_score + adj["pa_delta"], 0, 100))
+    fut = float(np.clip(fut + adj["futures"], -1, 1))
+    opt = float(np.clip(opt + adj["options"], -1, 1))
+    comps = Components(pa, mtf_alignment(ctx, d), fut, opt, breadth_score, liq)
     total, parts = score(comps)
-    contradictions = list(cand.contradictions)
+    contradictions = list(cand.contradictions) + adj["contradictions"]
+    evidence = list(cand.evidence) + adj["evidence"]
+    if adj["ignored"]:
+        evidence.append("unvalidated features (not scored): " + "; ".join(adj["ignored"]))
     if comps.mtf_alignment < 0:
         contradictions.append("higher timeframes oppose the setup")
     if fut < -0.2:
@@ -280,7 +295,7 @@ def stage2(ctx: StrategyContext, strategy: Strategy, cand: SetupCandidate, conf:
         trigger_event=cand.trigger_event, entry=cand.entry, entry_zone=cand.entry_zone, stop=cand.stop, target1=cand.target1,
         target2=cand.target2, reward_risk=round(cand.reward_risk, 2), invalidation=cand.invalidation, score=total, status=status,
         win_probability=wp, win_probability_note=wp_note,
-        evidence=cand.evidence, contradictions=contradictions, futures_confirmation=conf.futures, options_confirmation=conf.options,
+        evidence=evidence, contradictions=contradictions, futures_confirmation=conf.futures, options_confirmation=conf.options,
         breadth_confirmation=br or None, liquidity=conf.liquidity, data_quality=conf.data_quality.name,
         recommended_option=conf.recommended_option, option_alternatives=conf.option_alternatives or [],
         expected_spread_pct=(conf.liquidity or {}).get("spread_pct"), suggested_max_risk_rupees=rc.rupee_risk or None,

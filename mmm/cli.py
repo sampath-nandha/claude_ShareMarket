@@ -384,7 +384,8 @@ app.add_typer(research_app, name="research")
 @research_app.command("run")
 def research_run(train_days: int = 120, test_days: int = 30, holdout_days: int = 60,
                  days: int = typer.Option(0, help="Only use the last N calendar days of history (0 = all)"),
-                 workers: int = typer.Option(0, help="Parallel processes (0 = CPU count - 1, max 8)")) -> None:
+                 workers: int = typer.Option(0, help="Parallel processes (0 = CPU count - 1, max 8)"),
+                 features: bool = typer.Option(True, help="Also run the Release-1 feature study afterwards")) -> None:
     """One research-mode pass over archived NIFTY minutes: per-strategy OOS stats, calibration, statuses, report.
 
     Progress prints as chunks finish. Rough speed: ~0.5 s/session per core, so 3 years on 4 cores ~ 5 minutes.
@@ -404,6 +405,32 @@ def research_run(train_days: int = 120, test_days: int = 30, holdout_days: int =
         typer.echo(f"{sid}: n={o.get('n', 0)} win_rate={o.get('win_rate')} LB={o.get('win_rate_ci_low')} verdict={o.get('verdict')} status={e['status']}")
     if "calibration" in r:
         typer.echo(f"calibration: {r['calibration']['method']} n={r['calibration']['n']} usable={r['calibration']['usable']}")
+    typer.echo("report: " + ", ".join(r["paths"]))
+    if features:
+        typer.echo("\nfeature study:")
+        research_features(train_days=train_days, holdout_days=holdout_days, days=days, min_events=100)
+
+
+@research_app.command("features")
+def research_features(train_days: int = 120, holdout_days: int = 60,
+                      days: int = typer.Option(0, help="Only use the last N calendar days of history (0 = all)"),
+                      min_events: int = typer.Option(100, help="OOS events a feature needs before it can PASS")) -> None:
+    """Phase-4 feature study: each Release-1 feature's out-of-sample hit rate after costs; PASS features feed the score."""
+    from mmm.research.features import run_study
+    from mmm.research.report import load_index_minutes
+    from mmm.signals.aux import AuxData
+
+    bars = load_index_minutes(days or None)
+    if bars.empty:
+        raise typer.BadParameter("no archived NIFTY minute candles; run `mmm data backfill` first")
+    aux = AuxData.from_archive(bars)
+    typer.echo(f"sessions: {bars['ts'].dt.date.nunique()} · aux: {aux.coverage() if aux else 'none (no futures/option history)'}")
+    r = run_study(bars, aux, train_days=train_days, holdout_days=holdout_days, min_events=min_events,
+                  progress=lambda k, n: typer.echo(f"  sessions {k}/{n}"))
+    for k, v in r["features"].items():
+        o = v["oos"]
+        typer.echo(f"{k:<24} {v['status']:<12} OOS n={o['n']:<4} hit={o['hit_rate'] if o['hit_rate'] is None else round(o['hit_rate'], 3)} "
+                   f"LB={o['lb'] if o['lb'] is None else round(o['lb'], 3)} mean={o['mean_net_pts'] if o['mean_net_pts'] is None else round(o['mean_net_pts'], 1)}")
     typer.echo("report: " + ", ".join(r["paths"]))
 
 
