@@ -475,7 +475,7 @@ def dashboard(port: int = typer.Option(8501, help="HTTP port"), host: str = type
     import uvicorn
 
     typer.echo(f"MoneyMakingMachine UI on http://{'localhost' if host in ('127.0.0.1', '0.0.0.0') else host}:{port}  (Ctrl+C to stop)")
-    uvicorn.run("mmm.web.app:app", host=host, port=port, log_level="warning", ws="websockets")
+    uvicorn.run("mmm.web.app:app", host=host, port=port, log_level="warning", ws="websockets-sansio")
 
 
 @app.command()
