@@ -166,7 +166,7 @@ def aux(b: Bundle | None = None):
         return None
 
     def _mk():
-        from mmm.signals.aux import AuxData
+        from mmm.signals.auxdata import AuxData
 
         try:
             return AuxData.from_archive(b.minute_bars, start=b.as_of.date() - timedelta(days=7))

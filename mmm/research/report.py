@@ -51,7 +51,7 @@ def run(bars: pd.DataFrame | None = None, train_days: int = 120, test_days: int 
     strategies = load_strategies(get_config().strategies.enabled, apply_registry=False)
     aux = None
     try:
-        from mmm.signals.aux import AuxData
+        from mmm.signals.auxdata import AuxData
 
         aux = AuxData.from_archive(bars)
     except Exception as exc:  # noqa: BLE001 - research still runs on price action alone

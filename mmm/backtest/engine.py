@@ -193,7 +193,7 @@ def run_backtest(minute_bars: pd.DataFrame, cfg: BacktestConfig | None = None, r
     * research_mode=True:  every strategy is evaluated independently with its own open trade, so one pass
       yields per-strategy statistics for all strategies (used by `mmm research run`).
     * workers>1: sessions are split into contiguous chunks simulated in separate processes.
-    * aux (mmm.signals.aux.AuxData): futures parity and option OI history; strategies needing it are silent without it.
+    * aux (mmm.signals.auxdata.AuxData): futures parity and option OI history; strategies needing it are silent without it.
     """
     cfg = cfg or BacktestConfig()
     bars = minute_bars.sort_values("ts").reset_index(drop=True)

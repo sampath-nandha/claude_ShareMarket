@@ -10,7 +10,7 @@ from mmm.analytics.basis import basis_frame, basis_state, divergence, fair_basis
 from mmm.data import parquet_store, paths
 from mmm.data.futures_series import continuous_futures, monthly_expiry
 from mmm.demo import demo_minute_bars
-from mmm.signals.aux import AuxData
+from mmm.signals.auxdata import AuxData
 from mmm.signals.engine import FrameCache, build_context
 from mmm.strategies.pa13_basis_divergence import BasisDivergence
 from mmm.timeutil import IST

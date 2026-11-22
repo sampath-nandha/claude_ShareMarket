@@ -66,5 +66,5 @@ validation gate (Phase 4).
 | PA13 basis divergence | `mmm/strategies/pa13_basis_divergence.py` | needs futures history |
 | Option OI flow (walls, migration, PCR trend, heatmap) | `mmm/analytics/oi_flow.py` | Options page, OI flow tab |
 | PA14 OI wall; walls as levels for PA03/PA05 | `mmm/strategies/pa14_oi_wall.py` | needs option candles |
-| Aux data for context/backtests (no look-ahead) | `mmm/signals/aux.py` | used automatically |
+| Aux data for context/backtests (no look-ahead) | `mmm/signals/auxdata.py` | used automatically |
 | Feature study, registry, gated scoring | `mmm/research/features.py` | `mmm research features`, Research & Validation page |

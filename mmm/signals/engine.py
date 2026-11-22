@@ -119,7 +119,7 @@ def build_context(minute_bars: pd.DataFrame | None, as_of: datetime, setup_tf: s
     """Build a StrategyContext strictly from 1-minute bars with ts < as_of (no look-ahead).
 
     Pass a FrameCache (built once over the full series) for backtests; `minute_bars` may then be None.
-    `aux` (mmm.signals.aux.AuxData) adds futures-basis and option-OI state to `ctx.extras` when that data exists.
+    `aux` (mmm.signals.auxdata.AuxData) adds futures-basis and option-OI state to `ctx.extras` when that data exists.
     """
     cfg = get_config().strategies
     setup_tf = setup_tf or cfg.setup_timeframe

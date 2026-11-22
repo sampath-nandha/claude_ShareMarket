@@ -416,7 +416,7 @@ def research_features(train_days: int = 120, holdout_days: int = 60,
     """Phase-4 feature study: each Release-1 feature's out-of-sample hit rate after costs; PASS features feed the score."""
     from mmm.research.features import run_study
     from mmm.research.report import load_index_minutes
-    from mmm.signals.aux import AuxData
+    from mmm.signals.auxdata import AuxData
 
     bars = load_index_minutes(days or None)
     if bars.empty:

@@ -9,7 +9,7 @@ import pytest
 from mmm.analytics.oi_flow import ChainHistory, buildup_label
 from mmm.data import parquet_store, paths
 from mmm.demo import demo_minute_bars
-from mmm.signals.aux import AuxData
+from mmm.signals.auxdata import AuxData
 from mmm.signals.engine import FrameCache, build_context
 from mmm.strategies.pa14_oi_wall import OIWall
 from mmm.timeutil import IST
