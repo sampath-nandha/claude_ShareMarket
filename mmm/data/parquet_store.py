@@ -11,11 +11,25 @@ import duckdb
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+import structlog
 
 from mmm.data import paths
 from mmm.timeutil import IST
 
 CANDLE_COLS = ["ts", "open", "high", "low", "close", "volume", "oi"]
+MIN_CANDLE_TS = pd.Timestamp("2000-01-01", tz=IST)
+
+log = structlog.get_logger(__name__)
+
+
+def _plausible(df: pd.DataFrame, token: int, interval: str) -> pd.DataFrame:
+    """Drop candles stamped before 2000 or more than a day in the future (bad packets, clock errors)."""
+    hi = pd.Timestamp.now(tz=IST) + pd.Timedelta(days=1)
+    ok = (df["ts"] >= MIN_CANDLE_TS) & (df["ts"] <= hi)
+    if not ok.all():
+        log.warning("candles_rejected_bad_timestamp", token=token, interval=interval, rows=int((~ok).sum()),
+                    sample=str(df.loc[~ok, "ts"].iloc[0]))
+    return df[ok]
 
 
 def _connect() -> duckdb.DuckDBPyConnection:
@@ -29,7 +43,9 @@ def write_candles(df: pd.DataFrame, interval: str, token: int) -> int:
     """Merge candles into the per-year Parquet file (idempotent upsert on ts). Returns rows written."""
     if df.empty:
         return 0
-    df = _normalise_candles(df)
+    df = _plausible(_normalise_candles(df), token, interval)
+    if df.empty:
+        return 0
     written = 0
     for year, part in df.groupby(df["ts"].dt.year):
         path = paths.candles_file(interval, token, int(year))

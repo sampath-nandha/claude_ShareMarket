@@ -162,18 +162,30 @@ def get_config_universe():
 def verify(repair: bool = typer.Option(False, help="Re-fetch missing/partial sessions from Kite"),
            years: float = typer.Option(3.0, help="How far back the index/VIX/futures history is expected to reach"),
            include_options: bool = typer.Option(True, help="Also check the active option contracts (minute)")) -> None:
-    """Check every tracked instrument/interval for missing or partial sessions; optionally repair them."""
+    """Check every tracked instrument/interval for missing or partial sessions; optionally repair them.
+
+    Sessions come from the NIFTY 50 daily candles Kite served (not the holiday file). Option strikes are the
+    same +/- N strikes around the current spot that the collector captures. OK* = complete as far as Kite has data:
+    the remaining short days were re-fetched and Kite confirmed it has no more bars for them.
+    """
     from collections import Counter
 
     from mmm.data.instruments import build_universe, load_instruments
-    from mmm.data.verify import check, repair as _repair, summarise
+    from mmm.data.state_db import StateDB
+    from mmm.data.verify import SessionCalendar, check, reference_spot, repair as _repair, summarise
     from mmm.settings import get_config
 
     cfg = get_config()
     inst = load_instruments()
     if inst.empty:
         raise typer.BadParameter("No instrument snapshot; run `mmm data instruments` first")
-    uni = build_universe(inst, None)
+    state = StateDB()
+    idx = inst[(inst["exchange"] == cfg.universe.index_exchange) & (inst["tradingsymbol"] == cfg.universe.index_symbol)]
+    index_token = int(idx.iloc[0]["instrument_token"]) if not idx.empty else None
+    spot = reference_spot(index_token, state)
+    uni = build_universe(inst, spot)
+    cal = SessionCalendar.from_archive(index_token)
+    ledger = state.source_confirmed()
     start = date.today() - timedelta(days=int(years * 365))
     targets: list[tuple[int, str, list[str], date | None]] = []
     if uni.index is not None:
@@ -188,20 +200,27 @@ def verify(repair: bool = typer.Option(False, help="Re-fetch missing/partial ses
     covs = []
     for tok, name, intervals, st in targets:
         for iv in intervals:
-            covs.append(check(tok, name, iv, start=st))
+            covs.append(check(tok, name, iv, start=st, calendar=cal, confirmed=ledger.get((tok, iv), {}),
+                              reference=tok == index_token))
+    if cal.last_confirmed:
+        typer.echo(f"Calendar: {len(cal.days)} sessions from NIFTY 50 daily candles up to {cal.last_confirmed}; "
+                   f"holiday file used after that. Option strikes around spot {spot:,.0f}." if spot else "")
     df = summarise(covs)
-    core = df[~df["instrument"].str.contains("CE$|PE$", regex=True)]
+    is_opt = df["instrument"].str.contains("CE$|PE$", regex=True)
+    core = df[~is_opt]
     typer.echo("== Index / VIX / futures")
     typer.echo(core.to_string(index=False))
     if include_options:
-        opt = df[df["instrument"].str.contains("CE$|PE$", regex=True)]
-        typer.echo(f"\n== Options ({len(opt)} contracts, minute): OK={int((opt['status'] == 'OK').sum())} GAPS={int((opt['status'] == 'GAPS').sum())} EMPTY={int((opt['status'] == 'EMPTY').sum())}")
-        bad = opt[opt["status"] != "OK"]
+        opt = df[is_opt]
+        counts = opt["status"].value_counts()
+        typer.echo(f"\n== Options ({len(opt)} contracts, minute): OK={int(counts.get('OK', 0))} OK*={int(counts.get('OK*', 0))} "
+                   f"GAPS={int(counts.get('GAPS', 0))} EMPTY={int(counts.get('EMPTY', 0))}")
+        bad = opt[opt["status"].isin(["GAPS", "EMPTY"])]
         if not bad.empty:
             typer.echo(bad.head(30).to_string(index=False))
             if len(bad) > 30:
                 typer.echo(f"  ... {len(bad) - 30} more")
-    # dates missing from every core instrument are almost certainly holidays not in market_holidays.yaml
+    # dates missing from every core instrument after the last daily candle are probably unlisted holidays
     core_covs = [c for c in covs if not (c.name.endswith("CE") or c.name.endswith("PE")) and c.interval == "minute" and c.rows > 0]
     if core_covs:
         cnt = Counter(d for c in core_covs for d in c.missing)
@@ -210,20 +229,21 @@ def verify(repair: bool = typer.Option(False, help="Re-fetch missing/partial ses
             typer.echo(f"\nDates missing for ALL core instruments (likely exchange holidays not listed in config/market_holidays.yaml): {', '.join(str(d) for d in common)}")
     gaps = [c for c in covs if not c.ok and c.rows > 0]
     empties = [c for c in covs if c.rows == 0]
-    typer.echo(f"\nSummary: {sum(1 for c in covs if c.ok)} OK, {len(gaps)} with gaps, {len(empties)} empty")
+    typer.echo(f"\nSummary: {sum(1 for c in covs if c.ok)} OK ({sum(1 for c in covs if c.ok and c.confirmed)} of them OK*), "
+               f"{len(gaps)} with gaps, {len(empties)} empty")
+    typer.echo("OK* = the remaining short days were re-fetched and Kite has no more bars for them (thin trading, short sessions).")
     if repair and (gaps or empties):
         from mmm.broker.auth import get_client
+        from mmm.data.historical import backfill as _bf
 
         client = get_client()
-        for c in gaps:
-            n = _repair(client, c)
-            typer.echo(f"  repaired {c.name} {c.interval}: {n} rows ({len(c.missing)} missing, {len(c.partial)} partial sessions)")
-        for c in empties:
-            from mmm.data.historical import backfill as _bf
-
+        for i, c in enumerate(gaps, 1):
+            n = _repair(client, c, state=state)
+            typer.echo(f"  [{i}/{len(gaps)}] repaired {c.name} {c.interval}: {n} rows ({len(c.missing)} missing, {len(c.partial)} partial sessions)")
+        for i, c in enumerate(empties, 1):
             n = _bf(client, c.token, c.interval, start if c.name in (cfg.universe.index_symbol, cfg.universe.vix_symbol) else date.today() - timedelta(days=100))
-            typer.echo(f"  backfilled {c.name} {c.interval}: {n} rows")
-        typer.echo("Re-run `mmm data verify` to confirm. Sessions still missing after repair are days Kite has no data for (holidays/special sessions).")
+            typer.echo(f"  [{i}/{len(empties)}] backfilled {c.name} {c.interval}: {n} rows")
+        typer.echo("Re-run `mmm data verify` to confirm. Days Kite has no more bars for now show as OK* and are not fetched again.")
 
 
 @data_app.command("inventory")

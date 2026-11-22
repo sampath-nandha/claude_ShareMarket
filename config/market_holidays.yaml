@@ -1,5 +1,7 @@
 # NSE trading holidays (equity + F&O). Update each year from the NSE circular.
 # Weekends are handled automatically. Dates are YYYY-MM-DD.
+# Used for scheduling and for future dates. `mmm data verify` takes past sessions from Kite's NIFTY 50 daily
+# candles instead, so missing past years here do not show up as gaps.
 holidays:
   2025:
     - 2025-02-26  # Mahashivratri
@@ -24,5 +26,8 @@ holidays:
     - 2026-04-14  # Dr. Ambedkar Jayanti
     - 2026-05-01  # Maharashtra Day
     - 2026-08-15  # Independence Day
+    - 2026-09-14  # no session in Kite data (Ganesh Chaturthi)
     - 2026-10-02  # Mahatma Gandhi Jayanti
+    - 2026-10-20  # no session in Kite data (Dussehra)
+    - 2026-11-10  # no session in Kite data (Diwali Balipratipada)
     - 2026-12-25  # Christmas

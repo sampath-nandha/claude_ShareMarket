@@ -61,6 +61,12 @@ CREATE TABLE IF NOT EXISTS dq_incidents (
 CREATE TABLE IF NOT EXISTS subscription_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, action TEXT, tokens_json TEXT, mode TEXT
 );
+-- Sessions that a repair re-fetched and the source had no more bars for (thin trading, short sessions, empty
+-- contracts). `day` is YYYY-MM-DD, or '*' for a contract the source has no data for at all.
+CREATE TABLE IF NOT EXISTS source_confirmed (
+    instrument_token INTEGER NOT NULL, interval TEXT NOT NULL, day TEXT NOT NULL, bars INTEGER NOT NULL,
+    confirmed_at TEXT NOT NULL, PRIMARY KEY (instrument_token, interval, day)
+);
 """
 
 
@@ -245,6 +251,28 @@ class StateDB:
                 "INSERT INTO subscription_log(ts,action,tokens_json,mode) VALUES(?,?,?,?)",
                 (now_ist().isoformat(), action, json.dumps(tokens), mode),
             )
+
+
+    # --- source-confirmed short sessions (see data.verify) -------------------------------------------
+    def confirm_source(self, token: int, interval: str, days: dict[str, int]) -> None:
+        if not days:
+            return
+        now = now_ist().isoformat()
+        with self.tx() as c:
+            c.executemany(
+                "INSERT INTO source_confirmed(instrument_token,interval,day,bars,confirmed_at) VALUES(?,?,?,?,?) "
+                "ON CONFLICT(instrument_token,interval,day) DO UPDATE SET bars=excluded.bars, confirmed_at=excluded.confirmed_at",
+                [(int(token), interval, d, int(n), now) for d, n in days.items()],
+            )
+
+    def source_confirmed(self, token: int | None = None) -> dict[tuple[int, str], dict[str, int]]:
+        q = "SELECT instrument_token, interval, day, bars FROM source_confirmed"
+        rows = self._conn.execute(q + (" WHERE instrument_token=?" if token is not None else ""),
+                                  (() if token is None else (int(token),))).fetchall()
+        out: dict[tuple[int, str], dict[str, int]] = {}
+        for r in rows:
+            out.setdefault((int(r["instrument_token"]), r["interval"]), {})[r["day"]] = int(r["bars"])
+        return out
 
 
 def _ser(v: Any) -> Any:

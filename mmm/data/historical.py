@@ -38,8 +38,12 @@ def backfill(
     end: date | None = None,
     oi: bool = True,
     archive_raw: bool = True,
+    errors: list[tuple[date, date, str]] | None = None,
 ) -> int:
-    """Download [start, end] in documented-size windows, archive raw JSON, merge into Parquet. Returns rows."""
+    """Download [start, end] in documented-size windows, archive raw JSON, merge into Parquet. Returns rows.
+
+    Failed windows are logged and skipped; when `errors` is given, each one is appended as (start, end, message).
+    """
     cfg = get_config().historical
     end = end or now_ist().date()
     max_days = cfg.max_days_per_request.get(interval, 60)
@@ -52,6 +56,8 @@ def backfill(
             rows = client.historical(token, cur, chunk_end, interval, oi=oi)
         except Exception as exc:  # network / 4xx; log and continue with next window
             log.warning("historical_chunk_failed", token=token, interval=interval, start=str(cur), end=str(chunk_end), error=str(exc))
+            if errors is not None:
+                errors.append((cur, chunk_end, str(exc)))
             rows = []
         if rows:
             if archive_raw:

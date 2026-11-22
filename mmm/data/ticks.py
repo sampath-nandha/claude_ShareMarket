@@ -20,6 +20,17 @@ TICK_COLS = [
 
 DEPTH_COLS = ["instrument_token", "exchange_timestamp", "received_ts", "side", "level", "price", "quantity", "orders"]
 
+# Kite occasionally sends a zero epoch timestamp (decoded as 1970-01-01). Anything before this is treated as absent.
+MIN_VALID_TS = datetime(2000, 1, 1, tzinfo=IST)
+
+
+def valid_ts(ts: object) -> datetime | None:
+    """IST-aware timestamp, or None when missing or implausibly old (zero-epoch packets)."""
+    if not isinstance(ts, datetime):
+        return None
+    ts = to_ist(ts)
+    return ts if ts >= MIN_VALID_TS else None
+
 
 def normalise_tick(t: dict[str, Any], received: datetime | None = None) -> dict[str, Any]:
     """Flatten a KiteTicker tick. Index packets lack volume/depth/OI - those stay None, never fabricated."""
@@ -28,8 +39,8 @@ def normalise_tick(t: dict[str, Any], received: datetime | None = None) -> dict[
     depth = t.get("depth") or {}
     buy = depth.get("buy") or []
     sell = depth.get("sell") or []
-    ex_ts = t.get("exchange_timestamp")
-    ltt = t.get("last_trade_time")
+    ex_ts = valid_ts(t.get("exchange_timestamp"))
+    ltt = valid_ts(t.get("last_trade_time"))
     row: dict[str, Any] = {
         "instrument_token": int(t["instrument_token"]),
         "tradable": bool(t.get("tradable", True)),
@@ -45,11 +56,11 @@ def normalise_tick(t: dict[str, Any], received: datetime | None = None) -> dict[
         "low": ohlc.get("low"),
         "close": ohlc.get("close"),
         "change": t.get("change"),
-        "last_trade_time": to_ist(ltt) if isinstance(ltt, datetime) else None,
+        "last_trade_time": ltt,
         "oi": t.get("oi"),
         "oi_day_high": t.get("oi_day_high"),
         "oi_day_low": t.get("oi_day_low"),
-        "exchange_timestamp": to_ist(ex_ts) if isinstance(ex_ts, datetime) else None,
+        "exchange_timestamp": ex_ts,
         "received_ts": received,
         "bid1": buy[0]["price"] if buy else None,
         "bid1_qty": buy[0]["quantity"] if buy else None,
@@ -64,8 +75,7 @@ def normalise_tick(t: dict[str, Any], received: datetime | None = None) -> dict[
 def depth_rows(t: dict[str, Any], received: datetime | None = None) -> list[dict[str, Any]]:
     received = received or now_ist()
     depth = t.get("depth") or {}
-    ex_ts = t.get("exchange_timestamp")
-    ex_ts = to_ist(ex_ts) if isinstance(ex_ts, datetime) else None
+    ex_ts = valid_ts(t.get("exchange_timestamp"))
     out = []
     for side in ("buy", "sell"):
         for lvl, d in enumerate(depth.get(side) or [], start=1):
