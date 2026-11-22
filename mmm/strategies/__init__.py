@@ -20,12 +20,15 @@ def _all() -> list[Strategy]:
     from mmm.strategies.pa08_range_mean_reversion import RangeMeanReversion
     from mmm.strategies.pa09_compression_continuation import CompressionContinuation
     from mmm.strategies.pa10_failed_breakdown_recovery import FailedBreakdownRecovery
+    from mmm.strategies.pa11_opening_drive import OpeningDrive
+    from mmm.strategies.pa12_opening_trap import OpeningTrap
 
     return [TrendPullback(), BreakoutRetest(), FalseBreakout(), OpeningRangeBreakout(), SRRejection(), StructureReversal(),
-            ConsolidationBreakout(), RangeMeanReversion(), CompressionContinuation(), FailedBreakdownRecovery()]
+            ConsolidationBreakout(), RangeMeanReversion(), CompressionContinuation(), FailedBreakdownRecovery(),
+            OpeningDrive(), OpeningTrap()]
 
 
-ALL_IDS = ["PA01", "PA02", "PA03", "PA04", "PA05", "PA06", "PA07", "PA08", "PA09", "PA10"]
+ALL_IDS = ["PA01", "PA02", "PA03", "PA04", "PA05", "PA06", "PA07", "PA08", "PA09", "PA10", "PA11", "PA12"]
 
 
 def load_strategies(enabled: list[str] | None = None, apply_registry: bool = True) -> list[Strategy]:

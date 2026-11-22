@@ -83,7 +83,7 @@ class Strategy(ABC):
     @staticmethod
     def targets_from_levels(ctx: StrategyContext, direction: int, entry: float, risk: float) -> tuple[float, float]:
         """T1 = nearest meaningful level in trade direction (>= 1R away), else 1.5R; T2 = next level or 2.5R."""
-        kinds = ("PDH", "PDL", "PWH", "PWL", "ZONE_R", "ZONE_S", "SH", "SL", "ORH", "ORL", "ROUND")
+        kinds = ("PDH", "PDL", "PWH", "PWL", "ZONE_R", "ZONE_S", "SH", "SL", "ORH", "ORL", "ROUND", "CONF_R", "CONF_S", "OI_R", "OI_S")
         if direction > 0:
             cands = sorted([lv.price for lv in ctx.levels if lv.kind in kinds and lv.price >= entry + risk], key=lambda p: p)
         else:

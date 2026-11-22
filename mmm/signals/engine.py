@@ -19,6 +19,8 @@ import numpy as np
 from mmm.analytics.candles import MINUTES, completed_only, resample, session_slice
 from mmm.timeutil import IST, session_close
 from mmm.analytics.levels import Level, reference_levels, round_levels, swing_zones
+from mmm.analytics.opening import gap_with_fill, initial_balance, opening_type
+from mmm.analytics.pivots import cluster_levels, confluence, cpr, pivot_levels
 from mmm.analytics.regime import classify_regime
 from mmm.analytics.structure import candle_anatomy, classify_structure, pivot_swings, trend_direction
 from mmm.analytics.volatility import atr
@@ -80,11 +82,44 @@ class FrameCache:
         return self.minute.iloc[start:end]
 
 
+class LazyExtras(dict):
+    """dict whose values are computed on first access (most strategies never look at most extras)."""
+
+    def __init__(self, factories: dict[str, Any]):
+        super().__init__()
+        self._factories = dict(factories)
+
+    def add(self, key: str, factory: Any) -> None:
+        self._factories[key] = factory
+        super().pop(key, None)
+
+    def __missing__(self, key: str) -> Any:
+        if key not in self._factories:
+            raise KeyError(key)
+        val = self._factories[key]()
+        self[key] = val
+        return val
+
+    def get(self, key: str, default: Any = None) -> Any:  # dict.get bypasses __missing__
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def __contains__(self, key: object) -> bool:
+        return super().__contains__(key) or key in self._factories
+
+    def materialize(self) -> dict[str, Any]:
+        return {k: self[k] for k in self._factories}
+
+
 def build_context(minute_bars: pd.DataFrame | None, as_of: datetime, setup_tf: str | None = None,
-                  context_tf: str | None = None, trend_tf: str | None = None, cache: FrameCache | None = None) -> StrategyContext | None:
+                  context_tf: str | None = None, trend_tf: str | None = None, cache: FrameCache | None = None,
+                  aux: Any = None) -> StrategyContext | None:
     """Build a StrategyContext strictly from 1-minute bars with ts < as_of (no look-ahead).
 
     Pass a FrameCache (built once over the full series) for backtests; `minute_bars` may then be None.
+    `aux` (mmm.signals.aux.AuxData) adds futures-basis and option-OI state to `ctx.extras` when that data exists.
     """
     cfg = get_config().strategies
     setup_tf = setup_tf or cfg.setup_timeframe
@@ -131,11 +166,22 @@ def build_context(minute_bars: pd.DataFrame | None, as_of: datetime, setup_tf: s
     levels += swing_zones(setup, s_sw, len(setup) - 1, tf=setup_tf, atr_value=a)
     levels += swing_zones(context, c_sw, len(context) - 1, tf=context_tf, atr_value=c_atr)
     levels += round_levels(float(setup["close"].iloc[-1]))
-    return StrategyContext(
+    levels += pivot_levels(daily)
+    clusters = confluence(levels, a)
+    levels += cluster_levels(clusters, float(setup["close"].iloc[-1]))
+    extras = LazyExtras({
+        "cpr": lambda: cpr(daily), "clusters": lambda: clusters, "gap": lambda: gap_with_fill(intraday_today, daily),
+        "open15": lambda: opening_type(intraday_today, 15, as_of), "open30": lambda: opening_type(intraday_today, 30, as_of),
+        "ib30": lambda: initial_balance(intraday_today, 30, as_of), "ib60": lambda: initial_balance(intraday_today, 60, as_of),
+    })
+    ctx = StrategyContext(
         as_of=as_of, today=today, setup=setup, setup_tf=setup_tf, setup_swings=s_sw, setup_structure=s_struct,
         context=context, context_structure=c_struct, trend=trend, trend_structure=t_struct, regime=regime, atr=a,
-        levels=levels, daily=daily, intraday_today=intraday_today, anatomy=candle_anatomy(setup.iloc[-80:]),
+        levels=levels, daily=daily, intraday_today=intraday_today, anatomy=candle_anatomy(setup.iloc[-80:]), extras=extras,
     )
+    if aux is not None:
+        aux.enrich(ctx)
+    return ctx
 
 
 def stage1(ctx: StrategyContext, strategies: list[Strategy] | None = None, dedupe_candidates: bool = True) -> list[tuple[Strategy, SetupCandidate]]:
