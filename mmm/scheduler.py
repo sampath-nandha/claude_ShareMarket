@@ -3,7 +3,7 @@
 Jobs (IST, trading days only):
   07:30  login reminder (Windows toast / Telegram)         08:00  instrument snapshot
   09:15-15:30 every minute  option-chain REST snapshot (fallback/complement to WebSocket)
-  16:30  incremental candle update                          every 2 min  health check -> alerts
+  16:00  incremental candle update                          every 2 min  health check -> alerts
 """
 
 from __future__ import annotations
@@ -174,7 +174,7 @@ def run_scheduler() -> None:
     sched.add_job(job_login_reminder, CronTrigger(hour=8, minute=45, **trading))
     sched.add_job(job_instruments, CronTrigger(hour=8, minute=0, **trading))
     sched.add_job(job_chain_snapshot, CronTrigger(hour="9-15", minute="*", **trading))
-    sched.add_job(job_eod_update, CronTrigger(hour=16, minute=30, **trading))
+    sched.add_job(job_eod_update, CronTrigger(hour=16, minute=0, **trading))
     sched.add_job(job_health, CronTrigger(minute="*/2"))
     sched.start()
     StateDB().heartbeat("scheduler", "UP", started=now_ist())
