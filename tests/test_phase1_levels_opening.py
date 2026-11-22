@@ -107,8 +107,6 @@ def _history_then(today: pd.DataFrame, days: int = 25) -> pd.DataFrame:
 
 
 def test_pa11_fires_on_an_open_drive_at_0930():
-    prev_close = None
-    today = _session(list(np.linspace(0, 1, 375)))       # placeholder to size
     hist = demo_minute_bars(days=25, seed=9, end=DAY - timedelta(days=1))
     prev_close = float(hist["close"].iloc[-1])
     path = list(prev_close + 20 + np.linspace(0, 60, 15)) + list(prev_close + 80 + np.linspace(0, 5, 360))
@@ -118,9 +116,10 @@ def test_pa11_fires_on_an_open_drive_at_0930():
     as_of = datetime(2026, 11, 13, 9, 30, tzinfo=IST)
     ctx = build_context(None, as_of, cache=cache)
     assert ctx.extras["open15"].code == "OPEN_DRIVE"
-    cand = OpeningDrive().evaluate(ctx)
-    if cand is not None:                                   # R:R gate may legitimately reject on random history
-        assert cand.direction == "BULLISH" and cand.stop < ctx.extras["open15"].low
+    strat = OpeningDrive()
+    strat.min_reward_risk = 0.5                            # the R:R gate depends on levels in the random history
+    cand = strat.evaluate(ctx)
+    assert cand is not None and cand.direction == "BULLISH" and cand.stop < ctx.extras["open15"].low
     assert OpeningDrive().evaluate(build_context(None, as_of + timedelta(minutes=5), cache=cache)) is None
 
 

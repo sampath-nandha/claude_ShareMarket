@@ -41,7 +41,8 @@ def split_sessions(sessions: list[date], train_days: int, test_days: int, purge_
 
 
 def walk_forward(minute_bars: pd.DataFrame, cfg: BacktestConfig, train_days: int = 120, test_days: int = 30, purge_days: int = 2,
-                 holdout_days: int = 60, research_mode: bool = False, progress=None, workers: int = 1) -> tuple[list[Fold], Stats | None, list[str], BacktestResult | None]:
+                 holdout_days: int = 60, research_mode: bool = False, progress=None, workers: int = 1,
+                 aux=None) -> tuple[list[Fold], Stats | None, list[str], BacktestResult | None]:
     """Returns (folds, pooled OOS stats, notes, full backtest result over the work range)."""
     sessions = sorted(minute_bars["ts"].dt.date.unique())
     notes: list[str] = []
@@ -52,7 +53,7 @@ def walk_forward(minute_bars: pd.DataFrame, cfg: BacktestConfig, train_days: int
     fold_windows, holdout = split_sessions(usable, train_days, test_days, purge_days, holdout_days)
     work_end = fold_windows[-1][1][-1]
     c = BacktestConfig(**{**cfg.__dict__, "start": usable[0], "end": work_end})
-    res = run_backtest(minute_bars, c, research_mode=research_mode, progress=progress, workers=workers)
+    res = run_backtest(minute_bars, c, research_mode=research_mode, progress=progress, workers=workers, aux=aux)
     t = res.trades
     folds: list[Fold] = []
     for tr, te in fold_windows:
@@ -66,8 +67,9 @@ def walk_forward(minute_bars: pd.DataFrame, cfg: BacktestConfig, train_days: int
     return folds, oos_stats, notes, res
 
 
-def evaluate_holdout(minute_bars: pd.DataFrame, cfg: BacktestConfig, holdout_days: int = 60, research_mode: bool = False) -> Stats:
+def evaluate_holdout(minute_bars: pd.DataFrame, cfg: BacktestConfig, holdout_days: int = 60, research_mode: bool = False,
+                     aux=None) -> Stats:
     sessions = sorted(minute_bars["ts"].dt.date.unique())
     hold = sessions[len(sessions) - holdout_days:]
     c = BacktestConfig(**{**cfg.__dict__, "start": hold[0], "end": hold[-1]})
-    return compute_stats(run_backtest(minute_bars, c, research_mode=research_mode).trades)
+    return compute_stats(run_backtest(minute_bars, c, research_mode=research_mode, aux=aux).trades)

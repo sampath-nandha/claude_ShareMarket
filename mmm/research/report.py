@@ -49,10 +49,19 @@ def run(bars: pd.DataFrame | None = None, train_days: int = 120, test_days: int 
     n_sessions = int(bars["ts"].dt.date.nunique())
     log.info("research_start", sessions=n_sessions, rows=len(bars), first=str(bars["ts"].iloc[0].date()), last=str(bars["ts"].iloc[-1].date()))
     strategies = load_strategies(get_config().strategies.enabled, apply_registry=False)
+    aux = None
+    try:
+        from mmm.signals.aux import AuxData
+
+        aux = AuxData.from_archive(bars)
+    except Exception as exc:  # noqa: BLE001 - research still runs on price action alone
+        log.warning("research_aux_unavailable", error=str(exc))
     report: dict[str, Any] = {"generated_at": now_ist().isoformat(), "sessions": n_sessions,
+                              "aux_coverage": aux.coverage() if aux is not None else None,
                               "range": [str(bars["ts"].iloc[0].date()), str(bars["ts"].iloc[-1].date())], "strategies": {}, "notes": []}
     folds, _pooled_oos, notes, res = walk_forward(bars, BacktestConfig(strategies=[s.id for s in strategies]), train_days, test_days,
-                                                   holdout_days=holdout_days, research_mode=True, progress=progress, workers=workers)
+                                                   holdout_days=holdout_days, research_mode=True, progress=progress, workers=workers,
+                                                   aux=aux)
     report["notes"] += notes
     if res is None or not folds:
         report["notes"].append("walk-forward could not run (not enough sessions). Try --days larger, or smaller --train-days/--test-days/--holdout-days.")

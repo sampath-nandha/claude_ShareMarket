@@ -246,6 +246,40 @@ def verify(repair: bool = typer.Option(False, help="Re-fetch missing/partial ses
         typer.echo("Re-run `mmm data verify` to confirm. Days Kite has no more bars for now show as OK* and are not fetched again.")
 
 
+@data_app.command("probe-continuous")
+def probe_continuous_cmd() -> None:
+    """Check whether Kite serves continuous 1-minute NIFTY futures history (gives years of basis data if it does)."""
+    from mmm.broker.auth import get_client
+    from mmm.data.futures_series import probe_continuous
+    from mmm.data.instruments import build_universe, load_instruments
+
+    uni = build_universe(load_instruments(), None)
+    if uni.futures.empty:
+        raise typer.BadParameter("No NIFTY futures in the instrument snapshot; run `mmm data instruments` first")
+    tok = int(uni.futures.iloc[0]["instrument_token"])
+    res = probe_continuous(get_client(), tok)
+    typer.echo(f"continuous history for {uni.futures.iloc[0]['tradingsymbol']} ~1 year back: {res}")
+    if isinstance(res.get("minute"), int) and res["minute"] > 0:
+        typer.echo("1-minute continuous data IS available. Run `mmm data backfill-futures-continuous --years 3` to store it.")
+    else:
+        typer.echo("1-minute continuous data is NOT available; basis history grows from the archived contracts only.")
+
+
+@data_app.command("backfill-futures-continuous")
+def backfill_futures_continuous(years: float = typer.Option(3.0, help="Years of continuous 1-minute futures history")) -> None:
+    """Store Kite continuous 1-minute NIFTY futures (OI included) for basis research, where Kite provides it."""
+    from mmm.broker.auth import get_client
+    from mmm.data.futures_series import backfill_continuous
+    from mmm.data.instruments import build_universe, load_instruments
+
+    uni = build_universe(load_instruments(), None)
+    if uni.futures.empty:
+        raise typer.BadParameter("No NIFTY futures in the instrument snapshot; run `mmm data instruments` first")
+    n = backfill_continuous(get_client(), int(uni.futures.iloc[0]["instrument_token"]), years,
+                            progress=lambda a, b, k: typer.echo(f"  {a}..{b}: {k} rows"))
+    typer.echo(f"stored {n:,} continuous futures candles")
+
+
 @data_app.command("inventory")
 def inventory(detail: bool = typer.Option(False, help="List every instrument per interval instead of a summary")) -> None:
     """Print what is actually in the archive: snapshots, candle coverage per interval/instrument, tick/depth/chain partitions."""

@@ -107,7 +107,7 @@ def _decision_sessions(bars: pd.DataFrame, cfg: BacktestConfig) -> list[date]:
 
 
 def _simulate(bars: pd.DataFrame, cfg: BacktestConfig, sessions: list[date], research_mode: bool, progress=None,
-              log_every: int = 25) -> tuple[list[dict], int]:
+              log_every: int = 25, aux=None) -> tuple[list[dict], int]:
     """Simulate the given sessions over the full bar history. Returns (trade rows, candidate count)."""
     strategies: list[Strategy] = load_strategies(cfg.strategies or get_config().strategies.enabled)
     scfg = get_config().strategies
@@ -148,7 +148,7 @@ def _simulate(bars: pd.DataFrame, cfg: BacktestConfig, sessions: list[date], res
                 continue
             if not research_mode and open_trades and not cfg.allow_overlap:
                 continue
-            ctx = build_context(None, boundary.to_pydatetime(), setup_tf=cfg.setup_tf, cache=cache)
+            ctx = build_context(None, boundary.to_pydatetime(), setup_tf=cfg.setup_tf, cache=cache, aux=aux)
             if ctx is None:
                 continue
             cands = stage1(ctx, strategies, dedupe_candidates=not research_mode)
@@ -175,8 +175,8 @@ def _simulate(bars: pd.DataFrame, cfg: BacktestConfig, sessions: list[date], res
 
 
 def _worker(args: tuple) -> tuple[list[dict], int]:
-    bars, cfg, sessions, research_mode = args
-    return _simulate(bars, cfg, sessions, research_mode, progress=None, log_every=0)
+    bars, cfg, sessions, research_mode, aux = args
+    return _simulate(bars, cfg, sessions, research_mode, progress=None, log_every=0, aux=aux)
 
 
 def default_workers() -> int:
@@ -184,7 +184,7 @@ def default_workers() -> int:
 
 
 def run_backtest(minute_bars: pd.DataFrame, cfg: BacktestConfig | None = None, research_mode: bool = False,
-                 progress=None, log_every: int = 25, workers: int = 1) -> BacktestResult:
+                 progress=None, log_every: int = 25, workers: int = 1, aux=None) -> BacktestResult:
     """Event-driven backtest.
 
     * All provided bars feed the FrameCache (history); decisions happen only for sessions in [start, end]
@@ -193,6 +193,7 @@ def run_backtest(minute_bars: pd.DataFrame, cfg: BacktestConfig | None = None, r
     * research_mode=True:  every strategy is evaluated independently with its own open trade, so one pass
       yields per-strategy statistics for all strategies (used by `mmm research run`).
     * workers>1: sessions are split into contiguous chunks simulated in separate processes.
+    * aux (mmm.signals.aux.AuxData): futures parity and option OI history; strategies needing it are silent without it.
     """
     cfg = cfg or BacktestConfig()
     bars = minute_bars.sort_values("ts").reset_index(drop=True)
@@ -203,11 +204,16 @@ def run_backtest(minute_bars: pd.DataFrame, cfg: BacktestConfig | None = None, r
              f"P&L in rupees at {cfg.point_value} per index point (futures-like proxy, NOT option P&L)"]
     if research_mode:
         notes.append("research mode: strategies simulated independently (one open trade per strategy)")
+    if aux is not None:
+        cov = aux.coverage()
+        notes.append(f"aux data: futures parity on {cov['basis_days']} sessions, option OI on {cov['chain_days']} sessions")
+    else:
+        notes.append("no futures/option-OI history supplied: PA13/PA14 cannot trigger")
     if not sessions:
         return BacktestResult(pd.DataFrame(columns=EMPTY_COLS), 0, 0, 0, cfg, notes + ["no decision sessions after warm-up"])
     workers = max(1, min(workers, len(sessions) // 5 or 1))
     if workers == 1:
-        rows, n_cand = _simulate(bars, cfg, sessions, research_mode, progress, log_every)
+        rows, n_cand = _simulate(bars, cfg, sessions, research_mode, progress, log_every, aux)
     else:
         chunks = [list(c) for c in np.array_split(np.array(sessions, dtype=object), workers)]
         # each worker needs history before its first session: pass bars from 30 calendar days earlier to its last session
@@ -215,7 +221,7 @@ def run_backtest(minute_bars: pd.DataFrame, cfg: BacktestConfig | None = None, r
         for ch in chunks:
             lo = ch[0] - timedelta(days=45)
             sub = bars[(bars["ts"].dt.date >= lo) & (bars["ts"].dt.date <= ch[-1])]
-            jobs.append((sub, cfg, ch, research_mode))
+            jobs.append((sub, cfg, ch, research_mode, aux.slice(lo, ch[-1]) if aux is not None else None))
         log.info("backtest_parallel", workers=workers, sessions=len(sessions))
         t0 = _clock.monotonic()
         rows, n_cand, done = [], 0, 0
