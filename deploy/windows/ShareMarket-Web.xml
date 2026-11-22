@@ -1,0 +1,16 @@
+<service>
+  <id>ShareMarket-Web</id>
+  <name>ShareMarket Web UI</name>
+  <description>MoneyMakingMachine web UI (FastAPI + WebSocket) on http://localhost:8501. Read-only; never places orders.</description>
+  <executable>__REPO__\.venv\Scripts\python.exe</executable>
+  <arguments>-m mmm.cli web --port 8501 --host 127.0.0.1</arguments>
+  <workingdirectory>__REPO__</workingdirectory>
+  <env name="MMM_DATA_DIR" value="__DATADIR__"/>
+  <log mode="roll-by-size"><sizeThreshold>10240</sizeThreshold><keepFiles>8</keepFiles></log>
+  <logpath>__DATADIR__\logs</logpath>
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="60 sec"/>
+  <resetfailure>1 hour</resetfailure>
+  <startmode>Automatic</startmode>
+  <stoptimeout>15 sec</stoptimeout>
+</service>

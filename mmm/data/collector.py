@@ -90,6 +90,10 @@ class Collector:
 
     # --- writer thread -------------------------------------------------------------------------
     def _writer(self) -> None:
+        from mmm.data.tickbus import TickPublisher
+
+        pub = TickPublisher()           # owned by this thread; best-effort live push to the web UI
+        pub_buf: list[dict[str, Any]] = []
         tick_buf: list[dict[str, Any]] = []
         depth_buf: list[dict[str, Any]] = []
         candle_buf: list[dict[str, Any]] = []
@@ -104,6 +108,10 @@ class Collector:
                 t, recv = item["tick"], item["received"]
                 row = normalise_tick(t, recv)
                 tick_buf.append(row)
+                pub_buf.append(row)
+                if len(pub_buf) >= 200 or self.q.empty():
+                    pub.publish(pub_buf)
+                    pub_buf = []
                 if t.get("depth"):
                     depth_buf.extend(depth_rows(t, recv))
                 bar = self.agg.on_tick(row)
@@ -117,6 +125,8 @@ class Collector:
                 last_flush = time.monotonic()
         candle_buf.extend(self.agg.flush())
         self._flush(tick_buf, depth_buf, candle_buf, quotes)
+        pub.publish(pub_buf)
+        pub.close()
 
     def _flush(self, ticks: list, depth: list, candles: list, quotes: dict[int, dict[str, Any]]) -> None:
         today = now_ist().date()

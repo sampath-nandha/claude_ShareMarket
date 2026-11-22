@@ -3,4 +3,4 @@
 Decision-support only. This package never places, modifies or cancels orders.
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"

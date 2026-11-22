@@ -1,6 +1,7 @@
 # Release 1 — Intraday Market Reading (plan, not yet developed)
 
-Status: **APPROVED PLAN, DEVELOPMENT NOT STARTED.** Recorded 2026-11-22.
+Status: **IMPLEMENTED 2026-11-22** (plan recorded the same day). Every feature and strategy below ships as EXPERIMENTAL;
+its status changes only through `mmm research run` / `mmm research features` on your archived history.
 
 Scope: five intraday reading areas, built in four phases ordered by how fast each can be validated.
 Every new feature and strategy enters as an EXPERIMENTAL hypothesis and is promoted only through the existing
@@ -52,3 +53,18 @@ validation gate (Phase 4).
 - Nothing is promised as "pinpoint" or "accurate"; each idea stays EXPERIMENTAL until it passes the gate.
 - OI- and basis-based ideas validate slowly: history starts when live capture began, plus the life of each active contract.
 - The index has no volume; VWAP and volume reads use NIFTY futures, translated to spot through the basis.
+
+## Implementation map
+
+| Item | Code | Command / page |
+|---|---|---|
+| Pivots, CPR, confluence | `mmm/analytics/pivots.py` | Pre-Market & Opening page |
+| Gap, opening type, initial balance, pre-open | `mmm/analytics/opening.py` | Pre-Market & Opening page |
+| PA11 opening drive, PA12 opening trap | `mmm/strategies/pa11_*.py`, `pa12_*.py` | all research / signals |
+| Stitched front-month futures, continuous probe | `mmm/data/futures_series.py` | `mmm data probe-continuous`, `mmm data backfill-futures-continuous` |
+| Fair-value basis, premium z, divergence | `mmm/analytics/basis.py` | Futures & Basis page |
+| PA13 basis divergence | `mmm/strategies/pa13_basis_divergence.py` | needs futures history |
+| Option OI flow (walls, migration, PCR trend, heatmap) | `mmm/analytics/oi_flow.py` | Options page, OI flow tab |
+| PA14 OI wall; walls as levels for PA03/PA05 | `mmm/strategies/pa14_oi_wall.py` | needs option candles |
+| Aux data for context/backtests (no look-ahead) | `mmm/signals/aux.py` | used automatically |
+| Feature study, registry, gated scoring | `mmm/research/features.py` | `mmm research features`, Research & Validation page |

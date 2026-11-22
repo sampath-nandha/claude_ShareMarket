@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MoneyMakingMachine</title>
+  <link rel="stylesheet" href="/static/vendor/ag-grid.min.css">
+  <link rel="stylesheet" href="/static/vendor/ag-theme-quartz-no-font.min.css">
+  <link rel="stylesheet" href="/static/css/app.css">
+  <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
+  <script src="/static/vendor/ag-grid-community.min.noStyle.js"></script>
+  <script type="module" src="/static/js/app.js"></script>
+</head>
+<body>
+  <header>
+    <div class="brand">MoneyMakingMachine <span class="sub">NIFTY options intelligence · read-only</span></div>
+    <div class="ticker">
+      <span class="tk"><span class="lbl">NIFTY 50</span> <b id="t-spot">–</b> <span id="t-chg"></span></span>
+      <span class="tk"><span class="lbl">VIX</span> <b id="t-vix">–</b></span>
+      <span class="tk"><span class="lbl">FUT</span> <b id="t-fut">–</b></span>
+      <span id="t-mkt" class="pill">–</span>
+      <span id="t-auth" class="pill">–</span>
+      <span class="tk small"><span id="ws-dot" class="dot off" title="live feed"></span> <span id="t-src">feed: –</span> · <span id="t-lat">–</span></span>
+    </div>
+  </header>
+  <div id="demo-banner" class="demo" hidden></div>
+  <div class="layout">
+    <nav id="nav"></nav>
+    <main>
+      <div id="t-asof" class="asof">–</div>
+      <div id="view"></div>
+    </main>
+  </div>
+  <footer>
+    This application never places, modifies or cancels orders. Signals are research-only until a strategy passes the out-of-sample gates.
+    IV, Greeks, PCR, max pain, basis versus fair value and OI-flow labels are derived internally.
+    Charts by <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView Lightweight Charts</a> · tables by AG Grid Community.
+  </footer>
+</body>
+</html>

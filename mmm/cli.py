@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import subprocess
-import sys
 from datetime import date, timedelta
-from pathlib import Path
 
 import typer
 
@@ -172,7 +169,8 @@ def verify(repair: bool = typer.Option(False, help="Re-fetch missing/partial ses
 
     from mmm.data.instruments import build_universe, load_instruments
     from mmm.data.state_db import StateDB
-    from mmm.data.verify import SessionCalendar, check, reference_spot, repair as _repair, summarise
+    from mmm.data.verify import SessionCalendar, check, reference_spot, summarise
+    from mmm.data.verify import repair as _repair
     from mmm.settings import get_config
 
     cfg = get_config()
@@ -472,10 +470,18 @@ def schedule() -> None:
 
 
 @app.command()
-def dashboard(port: int = 8501) -> None:
-    """Launch the Streamlit dashboard."""
-    app_path = Path(__file__).parent / "dashboard" / "app.py"
-    subprocess.run([sys.executable, "-m", "streamlit", "run", str(app_path), "--server.port", str(port), "--server.headless", "true"], check=False)
+def dashboard(port: int = typer.Option(8501, help="HTTP port"), host: str = typer.Option("127.0.0.1", help="Bind address (keep 127.0.0.1 unless you need LAN access)")) -> None:
+    """Launch the web UI (FastAPI + WebSocket + Lightweight Charts + AG Grid) at http://localhost:PORT."""
+    import uvicorn
+
+    typer.echo(f"MoneyMakingMachine UI on http://{'localhost' if host in ('127.0.0.1', '0.0.0.0') else host}:{port}  (Ctrl+C to stop)")
+    uvicorn.run("mmm.web.app:app", host=host, port=port, log_level="warning", ws="websockets")
+
+
+@app.command()
+def web(port: int = 8501, host: str = "127.0.0.1") -> None:
+    """Alias of `mmm dashboard` (used by the ShareMarket-Web Windows service)."""
+    dashboard(port=port, host=host)
 
 
 @app.command()

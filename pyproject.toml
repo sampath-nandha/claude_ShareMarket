@@ -1,6 +1,6 @@
 [project]
 name = "mmm"
-version = "0.1.0"
+version = "1.0.0"
 description = "MoneyMakingMachine - Zerodha-only NIFTY 50 price-action and options trading intelligence (read-only, no order execution)"
 requires-python = ">=3.12"
 dependencies = [
@@ -14,15 +14,15 @@ dependencies = [
     "pydantic>=2.7",
     "pydantic-settings>=2.2",
     "pyyaml>=6.0",
-    "streamlit>=1.35",
-    "plotly>=5.22",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pyzmq>=26",
     "keyring>=25",
     "httpx>=0.27",
     "structlog>=24",
     "apscheduler>=3.10,<4",
     "typer>=0.12",
     "psutil>=5.9",
-    "matplotlib>=3.8",
     "pytz>=2024.1",
 ]
 

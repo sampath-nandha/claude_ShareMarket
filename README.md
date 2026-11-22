@@ -18,7 +18,7 @@ cd claude_ShareMarket
 .\.venv\Scripts\mmm auth login                               # every trading morning (Kite redirect is captured locally)
 .\.venv\Scripts\mmm data instruments                         # instrument master snapshot + universe
 .\.venv\Scripts\mmm data backfill --years 3                  # NIFTY / VIX / futures candles -> Parquet
-.\.venv\Scripts\mmm dashboard                                # http://localhost:8501
+.\.venv\Scripts\mmm dashboard                                # http://localhost:8501 (also runs as the ShareMarket-Web service)
 ```
 
 The dashboard works before any data exists: it falls back to **clearly labelled synthetic demo data** so you can
@@ -30,10 +30,16 @@ Any OS for development: `uv venv --python 3.12 && uv pip install -e ".[dev]" && 
 
 ```
 Kite REST + WebSocket ──► ShareMarket-Collector (WinSW service)  ──► Parquet (ticks, depth, 1m candles)
-                          ShareMarket-Scheduler (WinSW service)  ──► SQLite state (quotes, chain, signals, journal, health)
-                                                                 ──► Parquet option_chain snapshots
-Streamlit dashboard ◄── DuckDB over Parquet + SQLite (WAL, concurrent readers)
+                          │                                      ──► SQLite state (quotes, chain, signals, journal, health)
+                          └─ ZeroMQ tick bus (127.0.0.1:5557) ──► ShareMarket-Web (FastAPI, WebSocket push to the browser)
+                          ShareMarket-Scheduler (WinSW service)  ──► Parquet option_chain snapshots, EOD update (16:00)
+Browser (Lightweight Charts + AG Grid) ◄── REST (DuckDB over Parquet + SQLite) + one WebSocket for live ticks
 ```
+
+Live path: each tick is published by the collector the moment it is normalised and pushed to every open browser
+tab; the forming candle, option-chain cells and header update in place (typically 10-50 ms tick-to-screen on the
+same PC). Analytics (structure, levels, signals) refresh at each minute close. If the tick bus is unavailable the
+web service falls back to polling the state DB every 500 ms.
 
 | Layer | Module |
 |---|---|
@@ -41,18 +47,26 @@ Streamlit dashboard ◄── DuckDB over Parquet + SQLite (WAL, concurrent read
 | Instruments, backfill, ticks, collector, DQ | `mmm/data/` |
 | Candles, volatility, swings/structure, levels, regime, futures, breadth | `mmm/analytics/` |
 | Options: BS pricing/IV/Greeks, chain analytics, selector, payoff | `mmm/analytics/options/` |
-| Strategies PA01–PA05 (deterministic, versioned) | `mmm/strategies/` |
+| Strategies PA01–PA14 (deterministic, versioned) | `mmm/strategies/` |
 | Two-stage signal engine + scoring | `mmm/signals/` |
 | Costs (Zerodha NFO) + risk limits | `mmm/risk/` |
 | Event-driven backtest, Wilson/bootstrap stats, walk-forward | `mmm/backtest/` |
 | Paper / manual journal | `mmm/paper/` |
-| Dashboard (10 pages) | `mmm/dashboard/` |
+| Web UI (FastAPI + WebSocket, 12 pages) | `mmm/web/` |
 | Windows services & install | `deploy/windows/` |
 
-## Dashboard pages
-Market Overview · Price Action · Futures · **Options Intelligence** (chain, OI walls, PCR, max pain, straddle & expected
-move, IV smile/term structure, Greeks, ranked contracts with premium R:R and position size, multi-leg payoff builder,
-theta & cost planner) · Breadth · Live Signals · Risk & Positions · Backtesting · Market Replay · System Health.
+## Web UI pages (http://localhost:8501)
+Market Overview · **Pre-Market & Opening** (pivots, CPR, confluence clusters, gap, opening type, initial balance,
+pre-open auction) · Price Action · **Futures & Basis** (premium vs fair value, z-score, divergence) · **Options
+Intelligence** (live chain, OI structure, **OI flow**: wall migration, defended/unwinding walls, near-ATM PCR trend,
+OI-change heatmaps; IV smile/term structure, Greeks, ranked contracts, payoff builder, theta planner) · Breadth ·
+Live Signals · Risk & Journal · Backtesting · **Research & Validation** · Market Replay · System Health.
+
+## Release 1 (implemented)
+See `docs/Release1_Plan.md`. Phase 1 levels & opening (PA11 opening drive, PA12 opening trap), Phase 2 spot-futures
+parity (PA13 basis divergence; `mmm data probe-continuous` / `backfill-futures-continuous`), Phase 3 option OI flow
+(PA14 OI wall; walls are levels for PA03/PA05), Phase 4 feature study (`mmm research features`, also run by
+`mmm research run`): only features that PASS out-of-sample change a signal's score.
 
 ## Honesty rules baked in
 * Every signal carries `do_not_execute_reasons`; strategies start as `EXPERIMENTAL` and are labelled research-only.
@@ -67,7 +81,7 @@ theta & cost planner) · Breadth · Live Signals · Risk & Positions · Backtest
 `config/market_holidays.yaml`. Secrets: Credential Manager or `.env` (git-ignored).
 
 ## Status
-Implemented and tested (`pytest`: 64 tests): R01–R03 data foundation, all ten price-action strategies PA01–PA10 with
+Implemented and tested (`pytest`): R01–R03 data foundation, all ten price-action strategies PA01–PA10 with
 same-bar de-duplication, futures/options/breadth analytics, two-stage signal engine, risk and cost models, event-driven
 backtester, walk-forward with untouched holdout, out-of-sample probability calibration (gated; `None` until usable),
 option-leg P&L evaluation from archived option candles, strategy status registry (H10), broker fill reconciliation,

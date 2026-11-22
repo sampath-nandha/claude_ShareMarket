@@ -51,16 +51,24 @@ try {
 
 if ($SkipServices) { Write-Host "Skipping services."; exit 0 }
 
-# 6. WinSW services: collector (market hours) and scheduler (always on)
+# 6. WinSW services: collector (market hours), scheduler (always on), web UI (always on). Safe to re-run:
+#    services that already exist are restarted with the current code instead of being installed twice.
 $svcDir = Join-Path $Repo "deploy\windows"
 $winsw = Join-Path $svcDir "WinSW.exe"
 if (-not (Test-Path $winsw)) { Invoke-WebRequest $WinSWUrl -OutFile $winsw }
-foreach ($name in @("ShareMarket-Scheduler", "ShareMarket-Collector")) {
+foreach ($name in @("ShareMarket-Scheduler", "ShareMarket-Collector", "ShareMarket-Web")) {
     $exe = Join-Path $svcDir "$name.exe"
-    Copy-Item $winsw $exe -Force
     $xml = Get-Content (Join-Path $svcDir "$name.xml") -Raw
     $xml = $xml.Replace("__REPO__", $Repo).Replace("__DATADIR__", $DataDir)
     Set-Content (Join-Path $svcDir "$name.xml") $xml
+    if (Get-Service -Name $name -ErrorAction SilentlyContinue) {
+        Stop-Service $name -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        Start-Service $name
+        Write-Host "Service $name already installed - restarted."
+        continue
+    }
+    Copy-Item $winsw $exe -Force
     & $exe install | Out-Null
     & $exe start | Out-Null
     Write-Host "Service $name installed and started."
@@ -70,4 +78,4 @@ Write-Host "Next steps:"
 Write-Host "  1. .\.venv\Scripts\mmm auth set-keys      (API key/secret -> Credential Manager)"
 Write-Host "  2. .\.venv\Scripts\mmm auth login         (every trading morning, before 09:00)"
 Write-Host "  3. .\.venv\Scripts\mmm data instruments && .\.venv\Scripts\mmm data backfill"
-Write-Host "  4. .\.venv\Scripts\mmm dashboard          (http://localhost:8501)"
+Write-Host "  4. Open http://localhost:8501           (web UI service; or run .\.venv\Scripts\mmm dashboard)"
