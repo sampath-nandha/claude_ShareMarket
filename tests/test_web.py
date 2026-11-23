@@ -11,7 +11,7 @@ STATIC = Path(__file__).resolve().parents[1] / "mmm" / "web" / "static"
 GETS = ["/api/status", "/api/version", "/api/overview", "/api/overview?tf=minute&instrument=overlay&sessions=2", "/api/overview?instrument=fut&tf=15minute",
         "/api/premarket", "/api/priceaction", "/api/futures", "/api/futures?direction=BEARISH", "/api/breadth", "/api/options", "/api/options/theta",
         "/api/signals", "/api/risk", "/api/account", "/api/backtest/options", "/api/research", "/api/replay/sessions", "/api/health", "/api/coverage/detail",
-        "/api/patterns/watch"]
+        "/api/patterns/watch", "/api/condition", "/api/condition?horizon=60minute", "/api/condition?horizon=day&with_path=false"]
 
 
 @pytest.fixture(scope="module")
@@ -147,7 +147,7 @@ def test_static_assets_and_pages_exist(client):
         assert asset in html
         assert client.get(f"/static/{'vendor/' if 'js/app' not in asset else ''}{asset}").status_code == 200
     app_js = (STATIC / "js" / "app.js").read_text()
-    for page in ("overview", "premarket", "priceaction", "futures", "options", "breadth", "signals", "risk", "backtest", "research", "replay", "health"):
+    for page in ("overview", "condition", "premarket", "priceaction", "futures", "options", "breadth", "signals", "risk", "backtest", "research", "replay", "health"):
         assert f'"{page}"' in app_js and (STATIC / "js" / "pages" / f"{page}.js").exists()
     assert "http" not in (STATIC / "vendor" / "ag-theme-quartz-no-font.min.css").read_text()   # no external font fetch
 

@@ -56,7 +56,7 @@ web service falls back to polling the state DB every 500 ms.
 | Windows services & install | `deploy/windows/` |
 
 ## Web UI pages (http://localhost:8501)
-Market Overview · **Pre-Market & Opening** (pivots, CPR, confluence clusters, gap, opening type, initial balance,
+Market Overview · **Market Condition** (bullish / bearish / sideways gauges: intraday, 60-minute, daily) · **Pre-Market & Opening** (pivots, CPR, confluence clusters, gap, opening type, initial balance,
 pre-open auction) · Price Action · **Futures & Basis** (premium vs fair value, z-score, divergence) · **Options
 Intelligence** (live chain, OI structure, **OI flow**: wall migration, defended/unwinding walls, near-ATM PCR trend,
 OI-change heatmaps; IV smile/term structure, Greeks, ranked contracts, payoff builder, theta planner) · Breadth ·

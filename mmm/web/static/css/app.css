@@ -67,3 +67,22 @@ svg.xy .ax { fill: var(--muted); font-size: 10px; } svg.xy .lg { font-size: 11px
 .flex { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 pre.json { background: var(--bg); padding: 8px; border-radius: 4px; overflow: auto; max-height: 300px; font-size: 11px; }
 @media (max-width: 900px) { nav { width: 150px; } }
+/* market condition gauges */
+.g-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+.g-box { background: var(--panel); border: 2px solid var(--border); border-radius: 8px; padding: 12px 14px; transition: border-color .6s; }
+.g-box.dim { opacity: .55; }
+.g-box.compact { padding: 8px 10px; }
+.g-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+.g-name { font-weight: 800; letter-spacing: .06em; font-size: 15px; } .g-box.compact .g-name { font-size: 13px; }
+.g-score { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.g-track { position: relative; height: 10px; border-radius: 5px; margin: 6px 6px 4px; }
+.g-bullish { background: linear-gradient(90deg, #30363d, rgba(38,166,154,.9)); }
+.g-bearish { background: linear-gradient(90deg, rgba(239,83,80,.9), #30363d); }
+.g-sideways { background: linear-gradient(90deg, #30363d, rgba(240,180,41,.9) 50%, #30363d); }
+.g-mid { position: absolute; left: 50%; top: -3px; width: 1px; height: 16px; background: #6e7681; }
+.g-knob { position: absolute; top: 50%; width: 22px; height: 22px; border-radius: 50%; border: 2px solid #0d1117; transform: translate(-50%, -50%); transition: left .8s ease, background .8s; }
+.g-box.compact .g-knob { width: 16px; height: 16px; }
+.g-ends { display: flex; justify-content: space-between; color: var(--muted); font-size: 10px; margin-top: 6px; }
+.g-sub { color: var(--warn); font-size: 12px; margin-top: 6px; }
+.g-reasons { margin: 8px 0 0; padding-left: 16px; color: var(--muted); font-size: 12px; }
+@media (max-width: 900px) { .g-row { grid-template-columns: 1fr; } }

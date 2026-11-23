@@ -1,15 +1,17 @@
+import { gaugeRow } from "../widgets/gauges.js";
 import { api, candleChart, card, clear, el, fmtCol, grid, human, metrics, note, num, radio, select, signed, txtCol } from "../lib.js";
 
 export async function mount(root, { live }) {
   const st = { tf: "5minute", sessions: 3, instrument: "spot", levels: true, swings: true };
   root.appendChild(el("h2", {}, "Market Overview"));
   root.appendChild(el("div", { class: "subtitle" }, "NIFTY 50 across timeframes with structure, regime and key levels. The forming candle updates on every tick."));
+  const strip = el("a", { href: "#/condition", style: { textDecoration: "none", color: "inherit", display: "block" }, title: "open Market Condition" });
   const head = el("div");
   const controls = el("div", { class: "controls" });
   const chartBox = el("div", { class: "chart" });
   const basis = el("div", { class: "small" });
   const lower = el("div", { class: "row" });
-  root.append(head, controls, chartBox, basis, lower);
+  root.append(strip, head, controls, chartBox, basis, lower);
   const chart = candleChart(chartBox, { height: 520, volume: true });
   let unsub = null;
 
@@ -21,7 +23,12 @@ export async function mount(root, { live }) {
     el("label", { class: "flex" }, el("input", { type: "checkbox", checked: true, onchange: (e) => { st.swings = e.target.checked; load(); } }), "swings"),
   );
 
+  async function loadStrip() {
+    try { const c = await api("/api/condition?horizon=intraday&with_path=false"); clear(strip).appendChild(gaugeRow(c, { compact: true })); } catch (_e) { clear(strip); }
+  }
+
   async function load() {
+    loadStrip();
     let d;
     try { d = await api(`/api/overview?tf=${st.tf}&sessions=${st.sessions}&instrument=${st.instrument}`); } catch (e) { clear(head).appendChild(note(e.message, "error")); return; }
     const m = d.metrics;

@@ -261,6 +261,53 @@ def pattern_watch():
                   "note": "30-minute outcome after a 2-point round-trip cost, same definition as the feature study. One week is a small sample."})
 
 
+@router.get("/condition")
+def condition(horizon: str = Query("intraday"), with_path: bool = Query(True)):
+    """Bullish / bearish / sideways gauges (descriptive) for the chosen horizon, plus today's intraday path."""
+    from datetime import datetime as _dt
+
+    from mmm.analytics.condition import HORIZONS, compute, path
+    from mmm.analytics.futures import session_vwap
+    from mmm.analytics.options.chain import summarise_chain
+    from mmm.web.data import aux as _aux
+    from mmm.web.data import cached
+
+    if horizon not in HORIZONS:
+        raise HTTPException(400, f"horizon must be one of {HORIZONS}")
+    b = bundle()
+    ctx = _ctx_or_404(b)
+    today = ctx.today
+    vwap = None
+    if not b.futures_bars.empty:
+        fd = b.futures_bars[b.futures_bars["ts"].dt.date == today]
+        v = session_vwap(fd) if not fd.empty else None
+        if v is not None:
+            vwap = v - (float(fd["close"].iloc[-1]) - b.spot)          # futures VWAP mapped to spot through the basis
+    br = None
+    if not b.constituents.empty:
+        x = compute_breadth(b.constituents, b.universe_size)
+        br = {"score": x.score, "authoritative": x.authoritative, "coverage_pct": x.coverage_pct, "advancing": x.advancing, "declining": x.declining}
+    pin = False
+    if not b.chain.empty and b.expiries and b.expiries[0] == today and b.as_of.hour >= 13:
+        sm = summarise_chain(b.chain, b.spot, b.expiries[0], 2 * get_config().universe.option_strikes_each_side + 1, get_config().universe.strike_step)
+        from mmm.analytics.opening import daily_atr
+
+        da = daily_atr(ctx.daily)
+        pin = sm.max_pain is not None and da is not None and abs(b.spot - sm.max_pain) <= 0.3 * da
+    now = now_ist()
+    stale = (not b.is_demo) and is_market_open() and (now - b.as_of).total_seconds() > 180
+    st = compute(ctx, horizon, vwap=vwap, breadth=br, market_open=is_market_open() and not b.is_demo, stale=stale, demo=b.is_demo, expiry_pin=pin)
+    out = st.as_dict()
+    if with_path:
+        day = b.minute_bars[b.minute_bars["ts"].dt.date == today]
+        key = ("cond_path", b.is_demo, b.as_of.replace(second=0, microsecond=0))
+        pth = cached(key, 60, lambda: path(b.minute_bars, day, _aux(b)))
+        out["path"] = {k: line_json(pth["ts"], pth[k]) for k in ("bullish", "bearish", "sideways")} if not pth.empty else {}
+    out["horizons"] = list(HORIZONS)
+    out["as_of_text"] = _dt.strftime(b.as_of, "%H:%M")
+    return clean(out)
+
+
 @router.get("/futures")
 def futures(direction: str = Query("BULLISH")):
     from mmm.analytics.basis import basis_frame, basis_state
