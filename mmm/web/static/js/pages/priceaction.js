@@ -20,7 +20,22 @@ export async function mount(root, { live }) {
     chart = candleChart(box, { height: 520 });
     chart.setBars(d.bars, "5minute");
     chart.levels(d.levels);
-    chart.swings(d.swings);
+    const swingMarks = d.swings.map((x) => ({ time: x.time, position: x.kind === "H" ? "aboveBar" : "belowBar", color: x.kind === "H" ? "#ef5350" : "#26a69a",
+      shape: x.kind === "H" ? "arrowDown" : "arrowUp", text: x.label || "" }));
+    const pat = d.patterns || {};
+    let showPat = true;
+    try { showPat = localStorage.getItem("mmm.showPatterns") !== "0"; } catch (_e) { /* storage unavailable */ }
+    const lastDay = d.bars.length ? Math.floor(d.bars[d.bars.length - 1].time / 86400) : null;
+    const patMarks = () => (pat.enabled && showPat ? pat.markers.filter((m) => Math.floor(m.time / 86400) === lastDay).map((m) => ({
+      time: m.time, position: m.direction < 0 ? "aboveBar" : "belowBar", color: m.color, shape: "circle", size: 0.6, text: m.family === "indecision" ? "" : m.text })) : []);
+    chart.markers([...swingMarks, ...patMarks()]);
+    if (pat.enabled) {
+      box.parentNode.insertBefore(el("label", { class: "flex small" }, el("input", { type: "checkbox", checked: showPat, onchange: (e) => {
+        showPat = e.target.checked;
+        try { localStorage.setItem("mmm.showPatterns", showPat ? "1" : "0"); } catch (_e) { /* ignore */ }
+        chart.markers([...swingMarks, ...patMarks()]);
+      } }), "show candlestick patterns (latest session)"), box);
+    }
     d.candidates.forEach((c) => {
       chart.priceLine(c.entry, "#ffffff", `${c.strategy} entry`);
       chart.priceLine(c.stop, "#ef5350", "stop");
@@ -33,6 +48,17 @@ export async function mount(root, { live }) {
       fmtCol("price", "price", 0), fmtCol("confirmed_bars_later", "confirmed +bars", 0)], d.swing_table);
     grid(an, [txtCol("ts", "time", { valueFormatter: (q) => new Date(q.value).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: false }) }), fmtCol("close", "close", 0),
       fmtCol("body_ratio", "body"), fmtCol("upper_wick", "upper wick"), fmtCol("lower_wick", "lower wick"), fmtCol("close_loc", "close loc"), txtCol("patterns", "patterns", { flex: 2 })], d.anatomy);
+    if (pat.enabled) {
+      const pg = el("div");
+      body.appendChild(card(`Candlestick patterns on the decision bar (trial since ${pat.observe_from})`, pg,
+        el("div", { class: "small" }, "Chart dots (latest session): orange momentum/continuation · purple reversal · grey indecision (unlabelled). A pattern only affects a signal's score after it PASSES the feature study; until then it is shown here and listed as 'not scored'.")));
+      if (pat.latest.length) {
+        const dir = (v) => (v > 0 ? "↑ up" : v < 0 ? "↓ down" : "–");
+        grid(pg, [txtCol("pattern", "pattern"), txtCol("family", "family"), { field: "raw_direction", headerName: "pattern says", valueFormatter: (q) => dir(q.value) },
+          { field: "in_context_direction", headerName: "in its context", valueFormatter: (q) => (q.value ? dir(q.value) : "out of context") },
+          txtCol("status", "validation", { cellClass: (q) => (q.value === "PASS" ? "pos" : q.value === "FAIL" ? "neg" : "") }), txtCol("description", "definition", { flex: 4 })], pat.latest);
+      } else pg.appendChild(note("No pattern on the latest completed 5-minute bar."));
+    }
     const cands = el("div");
     body.appendChild(card(`Stage-1 setup candidates (${d.candidates.length})`, cands));
     if (!d.candidates.length) cands.appendChild(note("No strategy found a valid price-action setup on the decision bar. NO TRADE is the default."));

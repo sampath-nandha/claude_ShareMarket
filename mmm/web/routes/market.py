@@ -187,7 +187,9 @@ def priceaction():
     for _, r in an.iterrows():
         pats.append(", ".join(k for k in ("inside", "outside", "bull_engulf", "bear_engulf", "pin_bull", "pin_bear", "momentum", "narrow", "wide") if bool(r[k])))
     anatomy = pd.concat([last, an[["body_ratio", "upper_wick", "lower_wick", "close_loc"]]], axis=1).assign(patterns=pats)
+    patterns = _patterns(ctx, view)
     return clean({
+        "patterns": patterns,
         "bars": bars_json(view), "swings": _swings(sw), "levels": _levels(ctx.levels),
         "structure": {"setup": [ctx.setup_structure.trend, ctx.setup_structure.last_event, " ".join(ctx.setup_structure.labels[-8:])],
                       "context": [ctx.context_structure.trend, ctx.context_structure.last_event], "trend": [ctx.trend_structure.trend, ctx.trend_structure.last_event],
@@ -197,6 +199,66 @@ def priceaction():
         "candidates": [{"strategy": s.id, "name": s.name, "status": s.status, **c.model_dump(mode="json"), "risk": c.risk, "reward_risk": c.reward_risk}
                        for s, c in cands],
         "library": [s.spec() for s in strategies]})
+
+
+def _patterns(ctx, view) -> dict:
+    """Candlestick pattern trial: markers on the visible 5m bars and the patterns on the decision bar."""
+    from mmm.analytics.patterns import DESCRIPTIONS, FAMILY, contextual_direction, latest, pattern_frame
+    from mmm.research.features import statuses
+
+    cfg = get_config().patterns
+    if not cfg.enabled:
+        return {"enabled": False}
+    pf = pattern_frame(ctx.setup)
+    pv = pf.iloc[len(ctx.setup) - len(view):] if len(view) else pf.iloc[0:0]
+    colors = {"momentum": "#ffb74d", "reversal": "#ba68c8", "indecision": "#90a4ae"}
+    marks = []
+    for (i, row), ts in zip(pv.iterrows(), view["ts"]):
+        hit = [k for k, v in row.items() if v]
+        if not hit:
+            continue
+        fam = FAMILY[hit[0]]
+        marks.append({"time": chart_time(ts), "text": "/".join(k.split("_")[0][:4] for k in hit[:2]), "family": fam, "color": colors[fam],
+                      "direction": int(row[hit[0]]) if fam != "indecision" else 0})
+    reg = statuses()
+    raw = latest(ctx)
+    now = [{"pattern": k, "family": FAMILY[k], "raw_direction": int(v), "in_context_direction": contextual_direction(k, v, ctx),
+            "status": reg.get(f"pat_{k}", {}).get("status", "UNTESTED"), "description": DESCRIPTIONS[k]} for k, v in raw.items() if v]
+    return {"enabled": True, "markers": marks[-120:], "latest": now, "observe_from": cfg.observe_from}
+
+
+@router.get("/patterns/watch")
+def pattern_watch():
+    """Live watch of the pattern trial: every in-context pattern event since `patterns.observe_from`, with its
+    30-minute outcome after costs. Small samples - read with the historical feature study, not instead of it."""
+    from datetime import date as _date
+
+    from mmm.research.features import PATTERN_FEATURES, collect_events, statuses
+    from mmm.web.data import aux as _aux
+    from mmm.web.data import cached
+
+    cfg = get_config().patterns
+    if not cfg.enabled:
+        return {"enabled": False, "note": "pattern trial disabled (patterns.enabled: false)"}
+    b = bundle(days=60)
+    start = _date.fromisoformat(cfg.observe_from)
+    days = [d for d in sorted(b.minute_bars["ts"].dt.date.unique()) if d >= start]
+
+    def _run():
+        return collect_events(b.minute_bars, _aux(b), days, features=PATTERN_FEATURES) if days else pd.DataFrame()
+
+    ev = cached(("pattern_watch", b.as_of.replace(second=0, microsecond=0), tuple(days)), 300, _run)
+    reg = statuses()
+    summary = []
+    for f in PATTERN_FEATURES:
+        e = ev[ev["feature"] == f.key] if not ev.empty else ev
+        n = len(e)
+        summary.append({"pattern": f.key[4:], "status": reg.get(f.key, {}).get("status", "UNTESTED"), "events": n,
+                        "hits": int(e["hit"].sum()) if n else 0, "hit_rate": float(e["hit"].mean()) if n else None,
+                        "mean_net_pts": float(e["net"].mean()) if n else None, "sum_net_pts": float(e["net"].sum()) if n else None})
+    return clean({"enabled": True, "observe_from": cfg.observe_from, "sessions": days, "demo": b.is_demo, "summary": summary,
+                  "events": records(ev.assign(pattern=ev["feature"].str[4:]).drop(columns="feature").sort_values("ts", ascending=False)) if not ev.empty else [],
+                  "note": "30-minute outcome after a 2-point round-trip cost, same definition as the feature study. One week is a small sample."})
 
 
 @router.get("/futures")

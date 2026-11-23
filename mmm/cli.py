@@ -406,14 +406,19 @@ def research_run(train_days: int = 120, test_days: int = 30, holdout_days: int =
     typer.echo("report: " + ", ".join(r["paths"]))
     if features:
         typer.echo("\nfeature study:")
-        research_features(train_days=train_days, holdout_days=holdout_days, days=days, min_events=100)
+        research_features(train_days=train_days, holdout_days=holdout_days, days=days, min_events=100, workers=w)
 
 
 @research_app.command("features")
 def research_features(train_days: int = 120, holdout_days: int = 60,
                       days: int = typer.Option(0, help="Only use the last N calendar days of history (0 = all)"),
-                      min_events: int = typer.Option(100, help="OOS events a feature needs before it can PASS")) -> None:
-    """Phase-4 feature study: each Release-1 feature's out-of-sample hit rate after costs; PASS features feed the score."""
+                      min_events: int = typer.Option(100, help="OOS events a feature needs before it can PASS"),
+                      workers: int = typer.Option(0, help="Parallel processes (0 = CPU count - 1, max 8)")) -> None:
+    """Phase-4 feature study: each Release-1 feature's out-of-sample hit rate after costs; PASS features feed the score.
+
+    Includes the 15 candlestick-pattern features while `patterns.enabled` is true in config/settings.yaml.
+    """
+    from mmm.backtest.engine import default_workers
     from mmm.research.features import run_study
     from mmm.research.report import load_index_minutes
     from mmm.signals.auxdata import AuxData
@@ -424,10 +429,10 @@ def research_features(train_days: int = 120, holdout_days: int = 60,
     aux = AuxData.from_archive(bars)
     typer.echo(f"sessions: {bars['ts'].dt.date.nunique()} · aux: {aux.coverage() if aux else 'none (no futures/option history)'}")
     r = run_study(bars, aux, train_days=train_days, holdout_days=holdout_days, min_events=min_events,
-                  progress=lambda k, n: typer.echo(f"  sessions {k}/{n}"))
+                  progress=lambda k, n: typer.echo(f"  sessions ~{k}/{n}"), workers=workers or default_workers())
     for k, v in r["features"].items():
         o = v["oos"]
-        typer.echo(f"{k:<24} {v['status']:<12} OOS n={o['n']:<4} hit={o['hit_rate'] if o['hit_rate'] is None else round(o['hit_rate'], 3)} "
+        typer.echo(f"{k:<28} {v['status']:<12} OOS n={o['n']:<5} hit={o['hit_rate'] if o['hit_rate'] is None else round(o['hit_rate'], 3)} "
                    f"LB={o['lb'] if o['lb'] is None else round(o['lb'], 3)} mean={o['mean_net_pts'] if o['mean_net_pts'] is None else round(o['mean_net_pts'], 1)}")
     typer.echo("report: " + ", ".join(r["paths"]))
 

@@ -216,10 +216,10 @@ def run_backtest(minute_bars: pd.DataFrame, cfg: BacktestConfig | None = None, r
         rows, n_cand = _simulate(bars, cfg, sessions, research_mode, progress, log_every, aux)
     else:
         chunks = [list(c) for c in np.array_split(np.array(sessions, dtype=object), workers)]
-        # each worker needs history before its first session: pass bars from 30 calendar days earlier to its last session
+        # each worker needs history before its first session: pass bars from 120 calendar days earlier to its last session
         jobs = []
         for ch in chunks:
-            lo = ch[0] - timedelta(days=45)
+            lo = ch[0] - timedelta(days=120)   # covers the 60-session CPR rank and daily ATR
             sub = bars[(bars["ts"].dt.date >= lo) & (bars["ts"].dt.date <= ch[-1])]
             jobs.append((sub, cfg, ch, research_mode, aux.slice(lo, ch[-1]) if aux is not None else None))
         log.info("backtest_parallel", workers=workers, sessions=len(sessions))

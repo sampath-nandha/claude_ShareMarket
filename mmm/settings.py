@@ -173,8 +173,18 @@ class DataSourcesCfg(BaseModel):
     expired_option_strikes_each_side: int = 12
 
 
+class PatternsCfg(BaseModel):
+    """Candlestick pattern features (trial). `enabled: false` removes them from the study, scoring and the UI."""
+
+    enabled: bool = True
+    observe_from: str = "2026-11-23"        # start of the live pattern watch shown on the Research page
+    max_events_per_day: int = 4
+    spacing_minutes: int = 30
+
+
 class AppConfig(BaseModel):
     universe: UniverseCfg = Field(default_factory=UniverseCfg)
+    patterns: PatternsCfg = Field(default_factory=PatternsCfg)
     data_sources: DataSourcesCfg = Field(default_factory=DataSourcesCfg)
     session: SessionCfg = Field(default_factory=SessionCfg)
     historical: HistoricalCfg = Field(default_factory=HistoricalCfg)

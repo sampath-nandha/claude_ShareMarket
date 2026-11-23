@@ -10,7 +10,8 @@ from fastapi.testclient import TestClient
 STATIC = Path(__file__).resolve().parents[1] / "mmm" / "web" / "static"
 GETS = ["/api/status", "/api/version", "/api/overview", "/api/overview?tf=minute&instrument=overlay&sessions=2", "/api/overview?instrument=fut&tf=15minute",
         "/api/premarket", "/api/priceaction", "/api/futures", "/api/futures?direction=BEARISH", "/api/breadth", "/api/options", "/api/options/theta",
-        "/api/signals", "/api/risk", "/api/account", "/api/backtest/options", "/api/research", "/api/replay/sessions", "/api/health", "/api/coverage/detail"]
+        "/api/signals", "/api/risk", "/api/account", "/api/backtest/options", "/api/research", "/api/replay/sessions", "/api/health", "/api/coverage/detail",
+        "/api/patterns/watch"]
 
 
 @pytest.fixture(scope="module")

@@ -46,6 +46,8 @@ class Feature:
     times: tuple[time, ...]         # decision times (bar closes) at which the rule is evaluated
     description: str
     rule: Callable[[Any], int]      # ctx -> +1 / -1 / 0 (inactive)
+    per_day: int = 1                # events per session (first N activations, at least `spacing` minutes apart)
+    spacing: int = 0
 
 
 def _every(start: time, end: time, step: int = 15) -> tuple[time, ...]:
@@ -160,7 +162,41 @@ FEATURES: list[Feature] = [
     Feature("wall_unwinding", 3, "options", 30, INTRADAY, "nearest wall unwinding within 2 strikes -> through the wall, 30 min", r_wall_unwinding),
     Feature("wall_defended", 3, "options", 30, INTRADAY, "nearest wall defended within 1 strike -> away from the wall, 30 min", r_wall_defended),
 ]
-BY_KEY = {f.key: f for f in FEATURES}
+
+
+# --- candlestick pattern trial (see mmm.analytics.patterns) ------------------------------------------------------
+def _pattern_rule(key: str) -> Callable[[Any], int]:
+    def rule(ctx) -> int:
+        from mmm.analytics.patterns import contextual_direction, latest
+
+        raw = latest(ctx).get(key, 0)
+        return contextual_direction(key, raw, ctx) if raw else 0
+
+    rule.__name__ = f"r_pat_{key}"
+    return rule
+
+
+def _pattern_features() -> list[Feature]:
+    from mmm.analytics.patterns import DESCRIPTIONS, FAMILY
+
+    cfg = get_config().patterns
+    ctx_text = {"momentum": "with the context-timeframe trend -> trend direction",
+                "reversal": "at a strong support/resistance level -> away from the level",
+                "indecision": "after a >= 1 ATR run, at its 10-bar extreme -> against the run"}
+    every5 = _every(time(9, 30), time(14, 45), 5)
+    return [Feature(f"pat_{k}", 5, "pattern", 30, every5, f"{fam} pattern - {DESCRIPTIONS[k]}; {ctx_text[fam]}, 30 min",
+                    _pattern_rule(k), per_day=cfg.max_events_per_day, spacing=cfg.spacing_minutes) for k, fam in FAMILY.items()]
+
+
+PATTERN_FEATURES: list[Feature] = _pattern_features()
+
+
+def active_features() -> list[Feature]:
+    """Release-1 features plus the candlestick pattern trial when `patterns.enabled` is true."""
+    return FEATURES + (PATTERN_FEATURES if get_config().patterns.enabled else [])
+
+
+BY_KEY = {f.key: f for f in FEATURES + PATTERN_FEATURES}
 
 
 def _forward_move(minute: pd.DataFrame, ts_ns: np.ndarray, as_of: datetime, horizon: int, d: int) -> float | None:
@@ -181,62 +217,120 @@ def _forward_move(minute: pd.DataFrame, ts_ns: np.ndarray, as_of: datetime, hori
     return d * (float(minute["close"].iloc[j]) - entry)
 
 
-def collect_events(bars: pd.DataFrame, aux=None, sessions: list | None = None, progress=None) -> pd.DataFrame:
-    """One event per (feature, session): the first decision time at which the rule is active."""
+def collect_events(bars: pd.DataFrame, aux=None, sessions: list | None = None, progress=None,
+                   features: list[Feature] | None = None) -> pd.DataFrame:
+    """Events per (feature, session): the first `per_day` activations, at least `spacing` minutes apart."""
+    from mmm.analytics.patterns import pattern_frame
     from mmm.signals.engine import FrameCache, build_context
 
+    feats = features if features is not None else active_features()
     scfg = get_config().strategies
     minute = bars.sort_values("ts").reset_index(drop=True)
     ts_ns = minute["ts"].dt.tz_convert(None).to_numpy()
     cache = FrameCache(minute, scfg.setup_timeframe, scfg.context_timeframe, scfg.trend_timeframe)
     days = sessions or sorted(minute["ts"].dt.date.unique())
-    times = sorted({t for f in FEATURES for t in f.times})
+    times = sorted({t for f in feats for t in f.times})
+    # pattern pre-screen: decision times whose just-closed setup bar shows any pattern (avoids building a context
+    # for the ~70% of bars with nothing on them; the rule itself re-checks on the context, so results are identical)
+    pat_feats = [f for f in feats if f.group == "pattern"]
+    candidate: set = set()
+    if pat_feats:
+        setup = cache.frames[scfg.setup_timeframe]
+        pf = pattern_frame(setup)
+        from mmm.analytics.patterns import INDECISION, run_series
+        from mmm.analytics.volatility import atr as _atr
+
+        run = run_series(setup, 0.8 * _atr(setup, 14)).to_numpy() != 0   # lenient superset of the rule's 1-ATR run test
+        keys = [f.key[4:] for f in pat_feats]
+        directional = [k for k in keys if k not in INDECISION]
+        indecisive = [k for k in keys if k in INDECISION]
+        any_hit = (pf[directional].abs().sum(axis=1) > 0) if directional else pd.Series(False, index=pf.index)
+        if indecisive:
+            any_hit |= (pf[indecisive].sum(axis=1) > 0) & run
+        width = pd.Timedelta(minutes=int(scfg.setup_timeframe.replace("minute", "") or 1))
+        candidate = {(t + width) for t in setup.loc[any_hit.to_numpy(), "ts"]}
     rows = []
     for k, day in enumerate(days):
-        pending = {f.key for f in FEATURES}
+        count = {f.key: 0 for f in feats}
+        last: dict[str, datetime] = {}
         for t in times:
-            if not pending:
-                break
             as_of = datetime.combine(day, t, tzinfo=IST)
             if as_of <= session_open(day):
                 continue
-            ctx = None
-            for f in FEATURES:
-                if f.key not in pending or t not in f.times:
-                    continue
-                if ctx is None:
-                    ctx = build_context(None, as_of, cache=cache, aux=aux)
-                    if ctx is None:
-                        break
+            due = [f for f in feats if t in f.times and count[f.key] < f.per_day
+                   and (f.key not in last or as_of - last[f.key] >= timedelta(minutes=f.spacing))
+                   and (f.group != "pattern" or pd.Timestamp(as_of) in candidate)]
+            if not due:
+                continue
+            ctx = build_context(None, as_of, cache=cache, aux=aux)
+            if ctx is None:
+                continue
+            for f in due:
                 try:
                     d = f.rule(ctx)
                 except Exception as exc:  # noqa: BLE001 - one broken rule must not stop the study
                     log.warning("feature_rule_error", feature=f.key, error=str(exc))
                     d = 0
-                if d:
-                    mv = _forward_move(minute, ts_ns, as_of, f.horizon, d)
-                    if mv is not None:
-                        rows.append({"feature": f.key, "session": day, "ts": as_of, "direction": d, "move": mv,
-                                     "net": mv - COST_POINTS, "hit": mv - COST_POINTS > 0})
-                    pending.discard(f.key)
+                if not d:
+                    continue
+                mv = _forward_move(minute, ts_ns, as_of, f.horizon, d)
+                if mv is not None:
+                    rows.append({"feature": f.key, "session": day, "ts": as_of, "direction": d, "move": mv,
+                                 "net": mv - COST_POINTS, "hit": mv - COST_POINTS > 0})
+                count[f.key] += 1
+                last[f.key] = as_of
         if progress and (k + 1) % 25 == 0:
             progress(k + 1, len(days))
     return pd.DataFrame(rows, columns=["feature", "session", "ts", "direction", "move", "net", "hit"])
 
 
-def evaluate(events: pd.DataFrame, sessions: list, train_days: int, min_events: int = MIN_EVENTS) -> dict[str, dict[str, Any]]:
+def _collect_chunk(args: tuple) -> pd.DataFrame:
+    bars, aux, sessions = args
+    return collect_events(bars, aux, sessions)
+
+
+def collect_events_parallel(bars: pd.DataFrame, aux, sessions: list, workers: int = 1, progress=None) -> pd.DataFrame:
+    """Same events as `collect_events`, sessions split across processes (each chunk gets 120 days of history,
+    enough for the 60-session CPR width rank and the 20-day daily ATR)."""
+    from concurrent.futures import ProcessPoolExecutor
+
+    workers = max(1, min(workers, len(sessions) // 20 or 1))
+    if workers == 1:
+        return collect_events(bars, aux, sessions, progress)
+    chunks = [list(c) for c in np.array_split(np.array(sessions, dtype=object), workers)]
+    d = bars["ts"].dt.date
+    hist = timedelta(days=120)
+    jobs = [(bars[(d >= ch[0] - hist) & (d <= ch[-1])], aux.slice(ch[0] - hist, ch[-1]) if aux is not None else None, ch) for ch in chunks]
+    out, done = [], 0
+    with ProcessPoolExecutor(max_workers=workers) as ex:
+        for df in ex.map(_collect_chunk, jobs):
+            out.append(df)
+            done += 1
+            if progress:
+                progress(min(done * len(sessions) // workers, len(sessions)), len(sessions))
+    return pd.concat(out, ignore_index=True) if out else collect_events(bars, aux, [])
+
+
+def evaluate(events: pd.DataFrame, sessions: list, train_days: int, min_events: int = MIN_EVENTS,
+             features: list[Feature] | None = None) -> dict[str, dict[str, Any]]:
+    """In-sample vs OOS stats per feature. The pattern family is tested 15 times at once, so its gate uses a
+    Bonferroni-corrected confidence (1 - alpha / m); other features use the configured confidence."""
     v = get_config().validation
+    feats = features if features is not None else active_features()
+    m_pat = sum(1 for f in feats if f.group == "pattern")
     cut = sessions[train_days] if len(sessions) > train_days else None
     out: dict[str, dict[str, Any]] = {}
-    for f in FEATURES:
+    for f in feats:
+        conf = 1 - (1 - v.confidence_level) / m_pat if f.group == "pattern" and m_pat > 1 else v.confidence_level
         e = events[events["feature"] == f.key] if not events.empty else events
         ins = e[e["session"] < cut] if cut is not None else e
         oos = e[e["session"] >= cut] if cut is not None else e.iloc[0:0]
 
-        def _s(x: pd.DataFrame) -> dict[str, Any]:
+        def _s(x: pd.DataFrame, conf: float = conf) -> dict[str, Any]:
             n = len(x)
             wins = int(x["hit"].sum()) if n else 0
-            return {"n": n, "hit_rate": wins / n if n else None, "lb": wilson_lower_one_sided(wins, n, v.confidence_level) if n else None,
+            return {"n": n, "hit_rate": wins / n if n else None, "lb": wilson_lower_one_sided(wins, n, conf) if n else None,
+                    "lb_95": wilson_lower_one_sided(wins, n, v.confidence_level) if n else None,
                     "mean_net_pts": float(x["net"].mean()) if n else None, "mean_move_pts": float(x["move"].mean()) if n else None}
 
         s_in, s_out = _s(ins), _s(oos)
@@ -247,12 +341,12 @@ def evaluate(events: pd.DataFrame, sessions: list, train_days: int, min_events: 
         else:
             status, why = "FAIL", f"OOS hit {s_out['hit_rate']:.1%} (LB {s_out['lb']:.1%}) mean {s_out['mean_net_pts']:+.1f} pts after costs"
         out[f.key] = {"status": status, "reason": why, "phase": f.phase, "group": f.group, "horizon": f.horizon,
-                      "description": f.description, "in_sample": s_in, "oos": s_out}
+                      "description": f.description, "in_sample": s_in, "oos": s_out, "confidence": conf}
     return out
 
 
 def run_study(bars: pd.DataFrame, aux=None, train_days: int = 120, holdout_days: int = 60, state: StateDB | None = None,
-              out_dir: Path | None = None, min_events: int = MIN_EVENTS, progress=None) -> dict[str, Any]:
+              out_dir: Path | None = None, min_events: int = MIN_EVENTS, progress=None, workers: int = 1) -> dict[str, Any]:
     from mmm.backtest.engine import WARMUP_SESSIONS
     from mmm.data import paths
 
@@ -260,7 +354,7 @@ def run_study(bars: pd.DataFrame, aux=None, train_days: int = 120, holdout_days:
     sessions = sorted(bars["ts"].dt.date.unique())
     usable = sessions[WARMUP_SESSIONS:]
     work = usable[: len(usable) - holdout_days] if holdout_days and len(usable) > holdout_days else usable
-    events = collect_events(bars, aux, work, progress)
+    events = collect_events_parallel(bars, aux, work, workers, progress)
     res = evaluate(events, work, min(train_days, max(len(work) - 1, 0)), min_events)
     state.set_kv(KEY, {k: {**v, "updated_at": now_ist().isoformat()} for k, v in res.items()})
     report = {"generated_at": now_ist().isoformat(), "sessions": len(work), "holdout_sessions": len(usable) - len(work),
@@ -286,7 +380,7 @@ def _markdown(r: dict[str, Any]) -> str:
     intro = (f"Work range {r['sessions']} sessions (first {r['train_days']} in-sample), holdout {r['holdout_sessions']} untouched. "
              f"Cost {r['cost_points']} pts per event. PASS needs >= {r['min_events']} OOS events, Wilson LB > target, mean > 0.")
     lines = [f"# Feature study {r['generated_at']}", "", intro, "",
-             "| Feature | Phase | Horizon | IS n | IS hit | OOS n | OOS hit | OOS LB | OOS mean pts | Status |", "|---|---|---|---|---|---|---|---|---|---|"]
+             "| Feature | Phase | Horizon | IS n | IS hit | OOS n | OOS hit | OOS LB (gate) | OOS mean pts | Status |", "|---|---|---|---|---|---|---|---|---|---|"]
     for k, v in r["features"].items():
         i, o = v["in_sample"], v["oos"]
         lines.append(f"| {k} | {v['phase']} | {v['horizon'] or 'close'} | {i['n']} | {pct(i['hit_rate'])} | {o['n']} | {pct(o['hit_rate'])} | "
@@ -309,7 +403,7 @@ def adjustments(ctx, direction: int, registry: dict[str, dict[str, Any]] | None 
     """
     registry = statuses() if registry is None else registry
     out: dict[str, Any] = {"pa_delta": 0.0, "futures": 0.0, "options": 0.0, "evidence": [], "contradictions": [], "ignored": []}
-    for f in FEATURES:
+    for f in active_features():
         try:
             d = f.rule(ctx)
         except Exception:  # noqa: BLE001
@@ -324,7 +418,7 @@ def adjustments(ctx, direction: int, registry: dict[str, dict[str, Any]] | None 
         sign = 1 if agree else -1
         note = f"validated feature {f.key} {'agrees' if agree else 'disagrees'}"
         (out["evidence"] if agree else out["contradictions"]).append(note)
-        if f.group == "session":
+        if f.group in ("session", "pattern"):
             out["pa_delta"] += 5 * sign
         else:
             out[f.group] = float(np.clip(out[f.group] + 0.5 * sign, -1, 1))

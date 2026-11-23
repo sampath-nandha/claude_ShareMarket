@@ -19,9 +19,24 @@ export async function mount(root) {
   if (frows.length) {
     const pc = (f, h) => ({ field: f, headerName: h, type: "rightAligned", valueFormatter: (p) => pct(p.value, 1, true) });
     grid(fs, [txtCol("key", "feature"), fmtCol("phase", "phase", 0), txtCol("horizon", "horizon (min)"), txtCol("status", "status", { cellClass: (p) => (p.value === "PASS" ? "pos" : p.value === "FAIL" ? "neg" : "") }),
-      fmtCol("is_n", "IS n", 0), pc("is_hit", "IS hit"), fmtCol("oos_n", "OOS n", 0), pc("oos_hit", "OOS hit"), pc("oos_lb", "OOS LB95"), fmtCol("oos_mean", "OOS mean pts", 1),
+      fmtCol("is_n", "IS n", 0), pc("is_hit", "IS hit"), fmtCol("oos_n", "OOS n", 0), pc("oos_hit", "OOS hit"), pc("oos_lb", "OOS LB (gate)"), fmtCol("oos_mean", "OOS mean pts", 1),
       txtCol("description", "hypothesis", { flex: 4, wrapText: true, autoHeight: true })], frows);
   } else fs.appendChild(note("No feature study yet. Run `mmm research features` (or `mmm research run`).", "warn"));
+  const watch = el("div");
+  body.appendChild(card("Candlestick pattern trial - live watch", watch));
+  api("/api/patterns/watch").then((w) => {
+    if (!w.enabled) { watch.appendChild(note(w.note, "warn")); return; }
+    watch.appendChild(el("div", { class: "small" }, `In-context events since ${w.observe_from} (${w.sessions.length} session${w.sessions.length === 1 ? "" : "s"}${w.demo ? ", demo data" : ""}). ${w.note} Roll back with patterns.enabled: false in config/settings.yaml.`));
+    const pc = (f, h) => ({ field: f, headerName: h, type: "rightAligned", valueFormatter: (p) => pct(p.value, 1, true) });
+    const sg = el("div"), eg = el("div");
+    watch.append(sg, eg);
+    grid(sg, [txtCol("pattern", "pattern"), txtCol("status", "study status"), fmtCol("events", "events", 0), fmtCol("hits", "hits", 0), pc("hit_rate", "hit rate"),
+      fmtCol("mean_net_pts", "mean net pts", 1, { cellClass: (p) => (p.value > 0 ? "pos" : p.value < 0 ? "neg" : "") }), fmtCol("sum_net_pts", "total net pts", 1)], w.summary);
+    if (w.events.length) grid(eg, [txtCol("ts", "time", { valueFormatter: (p) => new Date(p.value).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: false }) }), txtCol("pattern", "pattern"),
+      { field: "direction", headerName: "dir", valueFormatter: (p) => (p.value > 0 ? "↑" : "↓") }, fmtCol("move", "30m move pts", 1), fmtCol("net", "net pts", 1, { cellClass: (p) => (p.value > 0 ? "pos" : "neg") }),
+      { field: "hit", headerName: "hit (after cost)", valueFormatter: (p) => (p.value ? "yes" : "no"), cellClass: (p) => (p.value ? "pos" : "neg") }], w.events, { height: 320 });
+    else eg.appendChild(note("No in-context pattern events yet in the watch window."));
+  }).catch((e) => watch.appendChild(note(e.message, "error")));
   const rr = d.research_report;
   if (rr) {
     const g = el("div");

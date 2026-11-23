@@ -76,6 +76,15 @@ parity (PA13 basis divergence; `mmm data probe-continuous` / `backfill-futures-c
 * IV/Greeks/PCR/max-pain/basis/breadth are DERIVED and labelled so; index packets never get fabricated volume/OI.
 * Break-even trades stay in the win-rate denominator. Nothing is removed by hand.
 
+## Candlestick pattern trial (from 2026-11-23)
+15 patterns (`mmm/analytics/patterns.py`): momentum/continuation (marubozu, three soldiers/crows, inside-bar breakout,
+NR7 breakout, three methods), reversal (engulfing, hammer/shooting star, morning/evening star, tweezer, piercing/dark
+cloud) and indecision (doji, spinning top, inside bar, harami, high-wave), adapted to gap-free intraday bars. Each
+family is tested by `mmm research features` only in its pre-declared context (momentum with the context trend,
+reversal at a strong level, indecision after a 1-ATR run) with a Bonferroni-corrected gate; only a PASS changes a
+signal's score. The Research page shows a live watch of every in-context event since `patterns.observe_from`.
+**Rollback:** set `patterns.enabled: false` in `config/settings.yaml` and restart the ShareMarket-Web service.
+
 ## Configuration
 `config/settings.yaml` (universe, session, risk, costs, scoring weights, validation gates),
 `config/market_holidays.yaml`. Secrets: Credential Manager or `.env` (git-ignored).

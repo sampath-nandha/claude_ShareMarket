@@ -95,7 +95,7 @@ def test_run_study_writes_report_and_registry(archive):
     state = StateDB(archive / "s.sqlite")
     r = F.run_study(bars, None, train_days=10, holdout_days=5, state=state, out_dir=archive / "reports", min_events=5)
     assert r["holdout_sessions"] == 5 and r["sessions"] == 40 - 10 - 5
-    assert set(r["features"]) == set(F.BY_KEY)
+    assert set(r["features"]) == {f.key for f in F.active_features()}
     assert F.statuses(state)["open_drive"]["status"] in ("PASS", "FAIL", "INSUFFICIENT")
     assert all(p.endswith((".json", ".md")) for p in r["paths"])
     assert r["features"]["basis_divergence"]["oos"]["n"] == 0           # no futures history supplied
