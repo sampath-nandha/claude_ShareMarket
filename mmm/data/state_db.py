@@ -61,6 +61,10 @@ CREATE TABLE IF NOT EXISTS dq_incidents (
 CREATE TABLE IF NOT EXISTS subscription_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, action TEXT, tokens_json TEXT, mode TEXT
 );
+CREATE TABLE IF NOT EXISTS paper_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, event TEXT NOT NULL, message TEXT, detail_json TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_paper_log_ts ON paper_log(ts);
 -- Sessions that a repair re-fetched and the source had no more bars for (thin trading, short sessions, empty
 -- contracts). `day` is YYYY-MM-DD, or '*' for a contract the source has no data for at all.
 CREATE TABLE IF NOT EXISTS source_confirmed (
@@ -273,6 +277,25 @@ class StateDB:
         for r in rows:
             out.setdefault((int(r["instrument_token"]), r["interval"]), {})[r["day"]] = int(r["bars"])
         return out
+
+
+    # --- automatic paper trading log ---------------------------------------------------------------------------
+    def paper_log(self, event: str, message: str, ts: datetime | None = None, **detail: Any) -> None:
+        with self.tx() as c:
+            c.execute("INSERT INTO paper_log(ts,event,message,detail_json) VALUES(?,?,?,?)",
+                      ((ts or now_ist()).isoformat(), event, message, json.dumps(detail, default=_json_default)))
+
+    def paper_logs(self, limit: int = 500) -> list[dict[str, Any]]:
+        rows = self._conn.execute("SELECT * FROM paper_log ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [{"id": r["id"], "ts": r["ts"], "event": r["event"], "message": r["message"], "detail": json.loads(r["detail_json"] or "{}")} for r in rows]
+
+
+def _json_default(v: Any) -> Any:
+    if isinstance(v, datetime):
+        return v.isoformat()
+    if hasattr(v, "item"):          # numpy scalars
+        return v.item()
+    return str(v)
 
 
 def _ser(v: Any) -> Any:

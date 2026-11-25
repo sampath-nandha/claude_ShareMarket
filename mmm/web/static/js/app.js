@@ -3,7 +3,7 @@ import { api, clear, el, hhmm, num, signed, toast } from "./lib.js";
 
 const PAGES = [
   ["overview", "Market Overview"], ["condition", "Market Condition"], ["premarket", "Pre-Market & Opening"], ["priceaction", "Price Action"], ["futures", "Futures & Basis"],
-  ["options", "Options Intelligence"], ["breadth", "Breadth"], ["signals", "Live Signals"], ["risk", "Risk & Journal"],
+  ["options", "Options Intelligence"], ["breadth", "Breadth"], ["signals", "Live Signals"], ["paper", "Paper Trading"], ["risk", "Risk & Journal"],
   ["backtest", "Backtesting"], ["research", "Research & Validation"], ["replay", "Market Replay"], ["health", "System Health"],
 ];
 

@@ -182,8 +182,26 @@ class PatternsCfg(BaseModel):
     spacing_minutes: int = 30
 
 
+class PaperCfg(BaseModel):
+    """Automatic paper trading (no real orders, ever): one option position at a time within `capital`."""
+
+    enabled: bool = True
+    capital: float = 10_000                 # maximum money committed to a position (premium x qty + costs)
+    max_lots: int = 10
+    entry_window: list[str] = Field(default_factory=lambda: ["09:30", "14:45"])
+    force_exit: str = "15:15"
+    max_hold_minutes: int = 120
+    premium_stop_pct: float = 50.0          # exit if the option bid falls this far below the entry price
+    max_trades_per_day: int = 3
+    max_daily_loss: float = 3_000
+    max_quote_age_s: int = 60
+    delta_band: list[float] = Field(default_factory=lambda: [0.2, 0.65])
+    exclude_rejected: bool = True           # skip strategies the research registry marked REJECTED
+
+
 class AppConfig(BaseModel):
     universe: UniverseCfg = Field(default_factory=UniverseCfg)
+    paper: PaperCfg = Field(default_factory=PaperCfg)
     patterns: PatternsCfg = Field(default_factory=PatternsCfg)
     data_sources: DataSourcesCfg = Field(default_factory=DataSourcesCfg)
     session: SessionCfg = Field(default_factory=SessionCfg)

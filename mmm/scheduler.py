@@ -4,10 +4,12 @@ Jobs (IST, trading days only):
   07:30  login reminder (Windows toast / Telegram)         08:00  instrument snapshot
   09:15-15:30 every minute  option-chain REST snapshot (fallback/complement to WebSocket)
   16:00  incremental candle update                          every 2 min  health check -> alerts
+  09:15-15:59 every minute at :15 s  automatic paper trading step (simulated; no orders)
 """
 
 from __future__ import annotations
 
+import contextlib
 import time
 
 import pandas as pd
@@ -167,6 +169,18 @@ def job_health() -> None:
         notify(f"Low disk: {free:.0f} GB free on data drive")
 
 
+def job_paper() -> None:
+    """Automatic paper trading (simulated, never sends orders): one step per minute at :15 s."""
+    from mmm.paper.auto import PaperTrader
+
+    try:
+        PaperTrader().step()
+    except Exception as exc:  # noqa: BLE001 - a paper-trading error must never stop the scheduler
+        log.error("paper_step_failed", error=str(exc))
+        with contextlib.suppress(Exception):
+            StateDB().paper_log("ERROR", f"paper step failed: {exc}")
+
+
 def run_scheduler() -> None:
     sched = BackgroundScheduler(timezone=IST)
     trading = {"day_of_week": "mon-fri"}
@@ -176,6 +190,7 @@ def run_scheduler() -> None:
     sched.add_job(job_chain_snapshot, CronTrigger(hour="9-15", minute="*", **trading))
     sched.add_job(job_eod_update, CronTrigger(hour=16, minute=0, **trading))
     sched.add_job(job_health, CronTrigger(minute="*/2"))
+    sched.add_job(job_paper, CronTrigger(hour="9-15", minute="*", second=15, **trading), max_instances=1, coalesce=True)
     sched.start()
     StateDB().heartbeat("scheduler", "UP", started=now_ist())
     log.info("scheduler_started", jobs=[j.name for j in sched.get_jobs()])

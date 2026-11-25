@@ -175,6 +175,23 @@ validation:
   target_win_rate: 0.51
   bootstrap_iterations: 2000
 
+# Automatic paper trading (simulated; this system never sends orders). Runs inside the scheduler service during market
+# hours: every 5-minute bar it takes the best Stage-1 setup and buys the nearest-expiry NIFTY option that fits the
+# capital. Results and the full decision log are on the Paper Trading page.
+paper:
+  enabled: true
+  capital: 10000                 # max rupees committed to one position, including costs
+  max_lots: 10
+  entry_window: ["09:30", "14:45"]
+  force_exit: "15:15"
+  max_hold_minutes: 120
+  premium_stop_pct: 50           # exit if the option's bid falls 50% below the entry price
+  max_trades_per_day: 3
+  max_daily_loss: 3000
+  max_quote_age_s: 60            # skip entries/exits on option quotes older than this
+  delta_band: [0.2, 0.65]
+  exclude_rejected: true         # do not paper-trade strategies research has REJECTED
+
 # Candlestick pattern trial (15 patterns as Phase-4 features). Set enabled: false to roll back: the patterns then
 # leave the feature study, the signal score and the UI. They only ever affect a score after passing the study.
 patterns:

@@ -76,6 +76,15 @@ parity (PA13 basis divergence; `mmm data probe-continuous` / `backfill-futures-c
 * IV/Greeks/PCR/max-pain/basis/breadth are DERIVED and labelled so; index packets never get fabricated volume/OI.
 * Break-even trades stay in the win-rate denominator. Nothing is removed by hand.
 
+## Automatic paper trading (simulated - no orders)
+The scheduler service runs `mmm/paper/auto.py` every minute in market hours. At each 5-minute bar close (09:30-14:45)
+it takes the best Stage-1 setup from strategies research has not REJECTED, skips it if the risk gate says NO TRADE,
+and "buys" the nearest-expiry NIFTY CE/PE closest to the money that fits `paper.capital` (Rs 10,000), at the live
+ask. Exits at the bid: underlying stop (checked first) or target 1, a 50% premium stop, 120-minute time stop, or 15:15.
+Limits: 3 trades and Rs 3,000 loss per day. Everything is on the **Paper Trading** page with a full decision log.
+`mmm paper backtest` (or the page's button) backtests the same rules: direction confidence on all index history,
+option confidence where option candles are archived. `mmm paper status | pause | resume`.
+
 ## Candlestick pattern trial (from 2026-11-23)
 15 patterns (`mmm/analytics/patterns.py`): momentum/continuation (marubozu, three soldiers/crows, inside-bar breakout,
 NR7 breakout, three methods), reversal (engulfing, hammer/shooting star, morning/evening star, tweezer, piercing/dark

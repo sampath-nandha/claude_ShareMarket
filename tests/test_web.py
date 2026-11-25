@@ -11,7 +11,7 @@ STATIC = Path(__file__).resolve().parents[1] / "mmm" / "web" / "static"
 GETS = ["/api/status", "/api/version", "/api/overview", "/api/overview?tf=minute&instrument=overlay&sessions=2", "/api/overview?instrument=fut&tf=15minute",
         "/api/premarket", "/api/priceaction", "/api/futures", "/api/futures?direction=BEARISH", "/api/breadth", "/api/options", "/api/options/theta",
         "/api/signals", "/api/risk", "/api/account", "/api/backtest/options", "/api/research", "/api/replay/sessions", "/api/health", "/api/coverage/detail",
-        "/api/patterns/watch", "/api/condition", "/api/condition?horizon=60minute", "/api/condition?horizon=day&with_path=false"]
+        "/api/patterns/watch", "/api/condition", "/api/condition?horizon=60minute", "/api/condition?horizon=day&with_path=false", "/api/paper"]
 
 
 @pytest.fixture(scope="module")
@@ -147,7 +147,7 @@ def test_static_assets_and_pages_exist(client):
         assert asset in html
         assert client.get(f"/static/{'vendor/' if 'js/app' not in asset else ''}{asset}").status_code == 200
     app_js = (STATIC / "js" / "app.js").read_text()
-    for page in ("overview", "condition", "premarket", "priceaction", "futures", "options", "breadth", "signals", "risk", "backtest", "research", "replay", "health"):
+    for page in ("overview", "condition", "premarket", "priceaction", "futures", "options", "breadth", "signals", "paper", "risk", "backtest", "research", "replay", "health"):
         assert f'"{page}"' in app_js and (STATIC / "js" / "pages" / f"{page}.js").exists()
     assert "http" not in (STATIC / "vendor" / "ag-theme-quartz-no-font.min.css").read_text()   # no external font fetch
 
@@ -155,3 +155,19 @@ def test_static_assets_and_pages_exist(client):
 def test_no_order_routes(client):
     paths = set(client.app.openapi()["paths"]) | {getattr(r, "path", "") for r in client.app.routes}
     assert not any(k in p for p in paths for k in ("order", "place", "modify", "cancel", "gtt"))
+
+
+def test_paper_pause_and_backtest(client):
+    assert client.post("/api/paper/pause", json={"paused": True}).json()["paused"] is True
+    d = client.get("/api/paper").json()
+    assert d["paused"] is True and d["config"]["capital"] == 10000
+    client.post("/api/paper/pause", json={"paused": False})
+    assert client.post("/api/paper/backtest", json={"days": 30}).json()["started"] in (True, False)
+    deadline = time.time() + 600
+    while time.time() < deadline:
+        st = client.get("/api/paper?log_limit=1").json()["backtest_status"]
+        if st and st["state"] != "RUNNING":
+            break
+        time.sleep(2)
+    d = client.get("/api/paper").json()
+    assert d["backtest_status"]["state"] == "DONE" and d["backtest"]["demo"] is True and "direction" in d["backtest"]

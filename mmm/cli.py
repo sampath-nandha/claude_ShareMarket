@@ -445,6 +445,72 @@ def research_status() -> None:
         typer.echo(f"{sid}: {s['status']} - {s['reason']} ({s['updated_at']})")
 
 
+paper_app = typer.Typer(help="Automatic paper trading (simulated; never sends orders)")
+app.add_typer(paper_app, name="paper")
+
+
+@paper_app.command("status")
+def paper_status() -> None:
+    """Equity, open position and the last log lines of the automatic paper trader."""
+    from mmm.paper.auto import PaperTrader
+
+    tr = PaperTrader()
+    t = tr.trades()
+    closed = t[t["exit_price"].notna()] if not t.empty else t
+    typer.echo(f"capital Rs {tr.cfg.capital:,.0f} · equity Rs {tr.equity():,.0f} · closed trades {len(closed)}"
+               + (f" · win rate {(closed['pnl_net'] > 0).mean():.0%}" if len(closed) else "") + (" · PAUSED" if tr.paused() else ""))
+    pos = tr.position()
+    typer.echo(f"open: {pos.lots} lot(s) {pos.tradingsymbol} @ {pos.entry_price:.2f} since {pos.entry_ts[11:16]}" if pos else "open: none")
+    for e in reversed(tr.state.paper_logs(15)):
+        typer.echo(f"  {e['ts'][:19]}  {e['event']:<6} {e['message']}")
+
+
+@paper_app.command("pause")
+def paper_pause() -> None:
+    from mmm.paper.auto import PaperTrader
+
+    PaperTrader().set_paused(True)
+    typer.echo("paper trading paused (open positions are still managed when resumed)")
+
+
+@paper_app.command("resume")
+def paper_resume() -> None:
+    from mmm.paper.auto import PaperTrader
+
+    PaperTrader().set_paused(False)
+    typer.echo("paper trading resumed")
+
+
+@paper_app.command("backtest")
+def paper_backtest(days: int = typer.Option(0, help="Only the last N calendar days (0 = all history)"),
+                   workers: int = typer.Option(0, help="Parallel processes (0 = CPU count - 1, max 8)")) -> None:
+    """Backtest the paper-trading rules: direction confidence on all index history, option confidence where option
+    candles are archived. The result also appears on the Paper Trading page."""
+    import json
+
+    from mmm.backtest.engine import default_workers
+    from mmm.data.state_db import StateDB
+    from mmm.paper.auto import backtest_paper
+    from mmm.research.report import load_index_minutes
+    from mmm.signals.auxdata import AuxData
+
+    bars = load_index_minutes(days or None)
+    if bars.empty:
+        raise typer.BadParameter("no archived NIFTY minute candles; run `mmm data backfill` first")
+    aux = AuxData.from_archive(bars)
+    r = backtest_paper(bars, aux, workers=workers or default_workers(), progress=lambda d, n, k: typer.echo(f"  sessions ~{d}/{n} · trades {k}"))
+    StateDB().set_kv("paper_backtest", json.loads(json.dumps(r, default=str)))
+    d, o = r["direction"], r["option"]
+    if d:
+        typer.echo(f"direction (index, {r['range'][0]}..{r['range'][1]}): n={d['n']} win rate {d['win_rate']:.1%} "
+                   f"95% lower bound {d['win_rate_ci_low']:.1%} expectancy Rs {d['expectancy']:,.0f}/trade verdict {d['verdict']}")
+    s = o["stats"]
+    if s:
+        typer.echo(f"option (Rs {10000:,} budget, archived contracts): n={s['n']} win rate {s['win_rate']:.1%} "
+                   f"95% lower bound {s['win_rate_ci_low']:.1%} net Rs {s['net_pnl']:,.0f} expectancy Rs {s['expectancy']:,.0f} verdict {s['verdict']}")
+    typer.echo(f"option trades not evaluated: {o['not_evaluated']} {o['reasons']}")
+
+
 @app.command()
 def reconcile() -> None:
     """Match MANUAL journal entries with today's broker fills (read-only)."""

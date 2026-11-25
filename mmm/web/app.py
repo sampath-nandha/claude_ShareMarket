@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from mmm import __version__
 from mmm.web.live import TickHub
-from mmm.web.routes import market, options, research, signals, system
+from mmm.web.routes import market, options, paper, research, signals, system
 
 log = structlog.get_logger(__name__)
 STATIC = Path(__file__).parent / "static"
@@ -35,7 +35,7 @@ def create_app(live: bool = True) -> FastAPI:
     app = FastAPI(title="MoneyMakingMachine", version=__version__, lifespan=lifespan, docs_url="/api/docs", redoc_url=None)
     app.state.hub = hub
     app.add_middleware(GZipMiddleware, minimum_size=2048)
-    for r in (market.router, options.router, signals.router, research.router, system.router):
+    for r in (market.router, options.router, signals.router, research.router, system.router, paper.router):
         app.include_router(r)
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
